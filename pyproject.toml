@@ -11,5 +11,8 @@ dependencies = [
     "requests>=2.32",
 ]
 
+[project.scripts]
+siphon = "siphon.watcher:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]

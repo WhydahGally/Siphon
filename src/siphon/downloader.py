@@ -1,6 +1,6 @@
-import argparse
 import logging
 import os
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 from yt_dlp import YoutubeDL
@@ -18,6 +18,22 @@ from siphon import renamer
 logger = logging.getLogger(__name__)
 
 
+# ---------------------------------------------------------------------------
+# Public result type
+# ---------------------------------------------------------------------------
+
+@dataclass
+class ItemRecord:
+    video_id: str
+    playlist_id: Optional[str]
+    yt_title: str
+    renamed_to: Optional[str]       # final filename stem, no extension
+    rename_tier: Optional[str]      # tier from RenameResult
+    uploader: Optional[str]
+    channel_url: Optional[str]
+    duration_secs: Optional[int]
+
+
 def download(
     url: str,
     output_dir: str,
@@ -25,6 +41,7 @@ def download(
     progress_callback: Optional[Callable[[dict], None]] = None,
     mb_user_agent: Optional[str] = None,
     auto_rename: bool = False,
+    on_item_complete: Optional[Callable[[ItemRecord], None]] = None,
 ) -> None:
     """
     Download a YouTube playlist or single video.
@@ -44,6 +61,10 @@ def download(
                            the MusicBrainz tier of the rename chain is skipped.
         auto_rename:       If True, rename each downloaded file to 'Artist - Track'
                            using the four-tier rename chain. Defaults to False.
+        on_item_complete:  Optional callable invoked with an ItemRecord after each
+                           item has been fully downloaded and renamed. Errors in the
+                           callback are caught and logged — they will not abort the
+                           download. Requires auto_rename=True to be effective.
 
     Raises:
         RuntimeError: If mp3 transcoding or mp4/mkv remuxing is requested but ffmpeg
@@ -103,7 +124,10 @@ def download(
 
     with YoutubeDL(ydl_opts) as ydl:
         if auto_rename:
-            ydl.add_post_processor(_RenamePostProcessor(mb_user_agent), when="after_move")
+            ydl.add_post_processor(
+                _RenamePostProcessor(mb_user_agent, on_item_complete=on_item_complete),
+                when="after_move",
+            )
         ydl.download([url])
 
     logger.debug("Download session complete for url=%s", url)
@@ -156,18 +180,41 @@ class _RenamePostProcessor(PostProcessor):
     Registered with when='after_move' so info_dict['filepath'] is the final file.
     """
 
-    def __init__(self, mb_user_agent: Optional[str]) -> None:
+    def __init__(
+        self,
+        mb_user_agent: Optional[str],
+        on_item_complete: Optional[Callable[[ItemRecord], None]] = None,
+    ) -> None:
         super().__init__()
         self._mb_user_agent = mb_user_agent
+        self._on_item_complete = on_item_complete
         if not mb_user_agent:
             logger.debug("renamer: MusicBrainz lookup skipped for this session: --mb-user-agent not configured")
 
     def run(self, info: dict) -> tuple:
+        result: Optional[renamer.RenameResult] = None
         try:
-            renamer.rename_file(info, self._mb_user_agent)
+            result = renamer.rename_file(info, self._mb_user_agent)
         except Exception as exc:
             filepath = info.get("filepath") or info.get("filename", "")
             logger.warning("renamer.rename_file raised an error for %s: %s", filepath, exc)
+
+        if self._on_item_complete is not None:
+            try:
+                record = ItemRecord(
+                    video_id=info.get("id") or "",
+                    playlist_id=info.get("playlist_id"),
+                    yt_title=info.get("title") or "",
+                    renamed_to=result.final_name if result else None,
+                    rename_tier=result.tier if result else None,
+                    uploader=info.get("uploader") or info.get("channel"),
+                    channel_url=info.get("channel_url") or info.get("uploader_url"),
+                    duration_secs=info.get("duration"),
+                )
+                self._on_item_complete(record)
+            except Exception as exc:
+                logger.warning("on_item_complete callback raised an error: %s", exc)
+
         return [], info
 
 
@@ -238,110 +285,4 @@ class _YtdlpLogger:
         logger.error("[yt-dlp] %s", msg)
 
 
-# ---------------------------------------------------------------------------
-# Entry point for manual testing
-# ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
-    import sys
-
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        stream=sys.stdout,
-    )
-
-    _VIDEO_FORMATS = {"mp4", "mkv", "webm"}
-    _AUDIO_FORMATS = {"mp3", "opus"}
-
-    parser = argparse.ArgumentParser(
-        prog="python3 -m siphon.downloader",
-        description=(
-            "Siphon — download a YouTube playlist or video.\n\n"
-            "Examples:\n"
-            "  # Download a playlist as 1080p MP4\n"
-            "  python3 -m siphon.downloader --url \"https://www.youtube.com/playlist?list=PLAYLIST_ID\" "
-            "--format mp4 --quality 1080\n\n"
-            "  # Download a playlist as MP3\n"
-            "  python3 -m siphon.downloader --url \"https://www.youtube.com/playlist?list=PLAYLIST_ID\" "
-            "--format mp3"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
-    parser.add_argument("--url", required=True, help="YouTube playlist or video URL.")
-    parser.add_argument(
-        "--output-dir",
-        default="./downloads",
-        help="Root directory for downloaded files (default: ./downloads).",
-    )
-    parser.add_argument(
-        "--format",
-        required=True,
-        choices=["mp4", "mkv", "webm", "mp3", "opus"],
-        help="Output format: mp4, mkv, or webm for video; mp3 or opus for audio.",
-    )
-    parser.add_argument(
-        "--quality",
-        default="best",
-        help="Video quality: best, 2160, 1080, 720, 480, 360 (default: best). Only used for video formats.",
-    )
-    parser.add_argument(
-        "--mb-user-agent",
-        default=None,
-        help=(
-            "User-Agent string for MusicBrainz API calls (e.g. 'Siphon/1.0 (you@example.com)'). "
-            "Required to enable MusicBrainz lookup in the rename chain. "
-            "Must follow the format: AppName/version (contact-url-or-email)."
-        ),
-    )
-    parser.add_argument(
-        "--auto-rename",
-        action="store_true",
-        default=False,
-        help="Rename downloaded files to 'Artist - Track' format after download.",
-    )
-
-    args = parser.parse_args()
-
-    is_video = args.format in _VIDEO_FORMATS
-    try:
-        opts = DownloadOptions(
-            mode="video" if is_video else "audio",
-            quality=args.quality if is_video else None,
-            video_format=args.format if is_video else None,
-            audio_format=args.format if not is_video else None,
-        )
-    except ValueError as exc:
-        parser.error(str(exc))
-
-    def _cli_progress(event: dict) -> None:
-        status = event["status"]
-        filename = os.path.basename(event["filename"]) if event["filename"] else ""
-        if status == "downloading":
-            downloaded = event["downloaded_bytes"] or 0
-            total = event["total_bytes"]
-            if total:
-                pct = downloaded / total * 100
-                print(f"[downloading] {filename} — {pct:.1f}%", end="\r", flush=True)
-            else:
-                mb = downloaded / 1_048_576
-                print(f"[downloading] {filename} — {mb:.1f} MB", end="\r", flush=True)
-        elif status == "finished":
-            print(f"\n[finished]    {filename}")
-        elif status == "error":
-            print(f"\n[error]       {filename}")
-
-    os.makedirs(args.output_dir, exist_ok=True)
-
-    try:
-        download(
-            url=args.url,
-            output_dir=args.output_dir,
-            options=opts,
-            progress_callback=_cli_progress,
-            mb_user_agent=args.mb_user_agent,
-            auto_rename=args.auto_rename,
-        )
-    except RuntimeError as exc:
-        print(f"\nError: {exc}", file=sys.stderr)
-        sys.exit(1)

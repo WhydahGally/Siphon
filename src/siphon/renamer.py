@@ -3,11 +3,24 @@ import os
 import re
 import threading
 import time
+from dataclasses import dataclass
 from typing import Optional
 
 import requests
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Public result type
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RenameResult:
+    original_title: str
+    final_name: str        # filename stem, no extension
+    tier: str              # "yt_metadata" | "title_separator" | "musicbrainz" | "yt_title_fallback"
+    new_path: str          # absolute path to renamed file on disk
 
 # ---------------------------------------------------------------------------
 # MusicBrainz rate-limiting state
@@ -31,7 +44,7 @@ _TITLE_SEPARATORS = [' ⧸⧸ ', ' // ', ' – ', ' — ', ' - ']
 # Public API
 # ---------------------------------------------------------------------------
 
-def rename_file(info_dict: dict, mb_user_agent: Optional[str] = None) -> None:
+def rename_file(info_dict: dict, mb_user_agent: Optional[str] = None) -> Optional["RenameResult"]:
     """
     Rename the downloaded file to 'Artist - Track.ext'.
 
@@ -41,12 +54,13 @@ def rename_file(info_dict: dict, mb_user_agent: Optional[str] = None) -> None:
       2.   MusicBrainz         — text search if mb_user_agent is configured.
       3.   YT title fallback   — sanitized info_dict['title'].
 
+    Returns a RenameResult on success, or None if no filepath was found.
     Non-fatal: OS rename errors are logged and swallowed.
     """
     filepath = info_dict.get("filepath") or info_dict.get("filename")
     if not filepath:
         logger.warning("renamer: no filepath in info_dict, skipping rename")
-        return
+        return None
 
     yt_title = (info_dict.get("title") or "").strip()
 
@@ -55,16 +69,18 @@ def rename_file(info_dict: dict, mb_user_agent: Optional[str] = None) -> None:
     track = (info_dict.get("track") or "").strip()
     if artist and track:
         artist = _resolve_primary_artist(artist, info_dict)
+        final_name = f"{artist} - {track}"
         logger.debug("renamer: tier 1 resolved via YT metadata")
-        _do_rename(filepath, f"{artist} - {track}")
-        return
+        new_path = _do_rename(filepath, final_name)
+        return RenameResult(original_title=yt_title, final_name=final_name, tier="yt_metadata", new_path=new_path)
 
     # Tier 1.5: Title separator parsing
     artist_hint, track_hint = _parse_title_separator(yt_title)
     if artist_hint and track_hint:
+        final_name = f"{_sanitize(artist_hint)} - {_sanitize(track_hint)}"
         logger.debug("renamer: tier 1.5 resolved via title separator")
-        _do_rename(filepath, f"{_sanitize(artist_hint)} - {_sanitize(track_hint)}")
-        return
+        new_path = _do_rename(filepath, final_name)
+        return RenameResult(original_title=yt_title, final_name=final_name, tier="title_separator", new_path=new_path)
 
     # Tier 2: MusicBrainz lookup
     if mb_user_agent:
@@ -72,35 +88,38 @@ def rename_file(info_dict: dict, mb_user_agent: Optional[str] = None) -> None:
         if mb_result:
             recordings = mb_result.get("recordings") or []
             if recordings and _mb_passes_threshold(recordings[0], yt_title):
-                name = _mb_format_name(recordings[0])
+                final_name = _mb_format_name(recordings[0])
                 logger.debug("renamer: tier 2 resolved via MusicBrainz")
-                _do_rename(filepath, name)
-                return
+                new_path = _do_rename(filepath, final_name)
+                return RenameResult(original_title=yt_title, final_name=final_name, tier="musicbrainz", new_path=new_path)
             else:
                 logger.debug("renamer: tier 2 result below threshold, falling through")
 
     # Tier 3: YT title fallback
-    name = _sanitize(yt_title) if yt_title else "unknown"
+    final_name = _sanitize(yt_title) if yt_title else "unknown"
     logger.debug("renamer: tier 3 fallback to YT title")
-    _do_rename(filepath, name)
+    new_path = _do_rename(filepath, final_name)
+    return RenameResult(original_title=yt_title, final_name=final_name, tier="yt_title_fallback", new_path=new_path)
 
 
 # ---------------------------------------------------------------------------
 # File rename helper
 # ---------------------------------------------------------------------------
 
-def _do_rename(filepath: str, name: str) -> None:
-    """Rename filepath to name, preserving extension. Logs and swallows OSError."""
+def _do_rename(filepath: str, name: str) -> str:
+    """Rename filepath to name, preserving extension. Logs and swallows OSError. Returns new path."""
     _, ext = os.path.splitext(filepath)
     dirpath = os.path.dirname(filepath)
     new_path = os.path.join(dirpath, f"{name}{ext}")
     if filepath == new_path:
-        return
+        return new_path
     try:
         os.rename(filepath, new_path)
         logger.debug("renamer: '%s' → '%s'", os.path.basename(filepath), os.path.basename(new_path))
     except OSError as exc:
         logger.warning("renamer: failed to rename '%s': %s", filepath, exc)
+        return filepath
+    return new_path
 
 
 def _sanitize(name: str) -> str:

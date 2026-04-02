@@ -208,3 +208,6 @@ __marimo__/
 
 # Git
 .gitignore
+
+# Siphon runtime data (DB + yt-dlp archives)
+.data/
