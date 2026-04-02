@@ -40,6 +40,54 @@ _ALL_FORMATS = sorted(VALID_AUDIO_FORMATS | VALID_VIDEO_FORMATS)
 
 
 # ---------------------------------------------------------------------------
+# CLI progress display
+# ---------------------------------------------------------------------------
+
+def _make_cli_progress_callback():
+    """
+    Returns a progress_callback that prints a live download progress line
+    to stdout, overwriting itself with \r. Prints a newline on completion.
+    """
+    def _fmt_bytes(n: int) -> str:
+        if n < 1024:
+            return f"{n} B"
+        if n < 1024 ** 2:
+            return f"{n / 1024:.1f} KB"
+        if n < 1024 ** 3:
+            return f"{n / 1024 ** 2:.1f} MB"
+        return f"{n / 1024 ** 3:.2f} GB"
+
+    def callback(event: dict) -> None:
+        status = event.get("status", "")
+        filename = os.path.basename(event.get("filename", ""))
+
+        if status == "downloading":
+            dl = event.get("downloaded_bytes") or 0
+            total = event.get("total_bytes")
+            speed = event.get("speed")
+            eta = event.get("eta")
+
+            parts = [f"  \u2193 {filename}"]
+            if total:
+                pct = dl / total * 100
+                parts.append(f"{pct:5.1f}%  {_fmt_bytes(dl)} / {_fmt_bytes(total)}")
+            else:
+                parts.append(_fmt_bytes(dl))
+            if speed:
+                parts.append(f"{_fmt_bytes(int(speed))}/s")
+            if eta is not None:
+                parts.append(f"ETA {eta}s")
+
+            line = "  ".join(parts)
+            print(f"\r{line:<80}", end="", flush=True)
+
+        elif status == "finished":
+            print(f"\r  ✓ {filename:<77}", flush=True)
+
+    return callback
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
@@ -211,7 +259,7 @@ def _download_with_archive(
         "quiet": True,
         "no_warnings": False,
         "logger": _YtdlpLogger(),
-        "progress_hooks": [_make_hook(options, None)],
+        "progress_hooks": [_make_hook(options, _make_cli_progress_callback())],
         "download_archive": archive,
     }
 
@@ -370,7 +418,14 @@ _KNOWN_KEYS = {
         "MusicBrainz User-Agent string (e.g. 'Siphon/1.0 (you@example.com)'). "
         "Required for MusicBrainz lookups in the rename chain.",
     ),
+    "log-level": (
+        "log_level",
+        "Logging verbosity for the siphon logger. One of: DEBUG, INFO, WARNING, ERROR. "
+        "Default: INFO.",
+    ),
 }
+
+_VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
 
 
 def cmd_config(args: argparse.Namespace) -> int:
@@ -394,8 +449,16 @@ def cmd_config(args: argparse.Namespace) -> int:
             print(f"{key_arg}: {val}")
         return 0
 
-    # Write mode
-    registry.set_setting(db_key, args.value)
+    # Write mode — validate log-level values before persisting.
+    if key_arg == "log-level" and args.value.upper() not in _VALID_LOG_LEVELS:
+        print(
+            f"Error: Invalid log-level '{args.value}'. "
+            f"Valid values: {', '.join(sorted(_VALID_LOG_LEVELS))}",
+            file=sys.stderr,
+        )
+        return 1
+    value = args.value.upper() if key_arg == "log-level" else args.value
+    registry.set_setting(db_key, value)
     print(f"Set {key_arg}.")
     return 0
 
@@ -410,6 +473,14 @@ def main() -> None:
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         stream=sys.stderr,
     )
+
+    # Apply log-level from DB if already set; fall back to INFO on a fresh install
+    # or before the DB has been initialised by the actual command.
+    try:
+        stored_level = registry.get_setting("log_level") or "INFO"
+    except RuntimeError:
+        stored_level = "INFO"
+    logging.getLogger("siphon").setLevel(getattr(logging, stored_level, logging.INFO))
 
     parser = argparse.ArgumentParser(
         prog="siphon",

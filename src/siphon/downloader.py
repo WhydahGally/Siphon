@@ -154,6 +154,15 @@ def _build_ydl_opts(
         "no_warnings": False,  # Allow yt-dlp warnings to surface through its logger.
         "logger": _YtdlpLogger(),
         "progress_hooks": [_make_hook(options, progress_callback)],
+        # YouTube JS challenge solving (signature decryption + n-param throttling).
+        # yt-dlp needs two things:
+        #   1. A JS runtime to execute the solver — node is standard in all Linux
+        #      distros (single apt-get), ideal for containers; deno as local fallback.
+        #   2. The challenge solver script itself (EJS) — fetched once from GitHub
+        #      and cached by yt-dlp. Without it, the runtime alone cannot solve
+        #      the challenges and formats/speed will be degraded.
+        "js_runtimes": {"node": {}, "deno": {}},
+        "remote_components": ["ejs:github"],
     }
 
     if options.mode == "video" and options.quality != "best":
