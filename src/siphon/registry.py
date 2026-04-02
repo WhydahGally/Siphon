@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS playlists (
     name           TEXT NOT NULL,
     url            TEXT NOT NULL,
     format         TEXT NOT NULL DEFAULT 'mp3',
+    quality        TEXT NOT NULL DEFAULT 'best',
     output_dir     TEXT NOT NULL,
     added_at       TEXT NOT NULL,
     last_synced_at TEXT
@@ -70,6 +71,7 @@ def init_db(data_dir: str) -> None:
     # Migrate existing DBs: add columns introduced after initial schema.
     for stmt in (
         "ALTER TABLE playlists ADD COLUMN format TEXT NOT NULL DEFAULT 'mp3'",
+        "ALTER TABLE playlists ADD COLUMN quality TEXT NOT NULL DEFAULT 'best'",
         "ALTER TABLE playlists ADD COLUMN output_dir TEXT NOT NULL DEFAULT ''",
     ):
         try:
@@ -93,7 +95,7 @@ def _now() -> str:
 # Playlist CRUD
 # ---------------------------------------------------------------------------
 
-def add_playlist(playlist_id: str, name: str, url: str, fmt: str, output_dir: str) -> None:
+def add_playlist(playlist_id: str, name: str, url: str, fmt: str, quality: str, output_dir: str) -> None:
     """Insert a new playlist. Raises ValueError if the playlist ID already exists."""
     conn = _get_conn()
     existing = conn.execute(
@@ -102,8 +104,8 @@ def add_playlist(playlist_id: str, name: str, url: str, fmt: str, output_dir: st
     if existing:
         raise ValueError(f"Playlist '{playlist_id}' is already registered.")
     conn.execute(
-        "INSERT INTO playlists (id, name, url, format, output_dir, added_at, last_synced_at) VALUES (?, ?, ?, ?, ?, ?, NULL)",
-        (playlist_id, name, url, fmt, output_dir, _now()),
+        "INSERT INTO playlists (id, name, url, format, quality, output_dir, added_at, last_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
+        (playlist_id, name, url, fmt, quality, output_dir, _now()),
     )
     conn.commit()
 

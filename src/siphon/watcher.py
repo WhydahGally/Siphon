@@ -29,7 +29,7 @@ from yt_dlp import YoutubeDL
 
 from siphon import registry
 from siphon.downloader import download, ItemRecord
-from siphon.formats import DownloadOptions, VALID_AUDIO_FORMATS, VALID_VIDEO_FORMATS
+from siphon.formats import DownloadOptions, VALID_AUDIO_FORMATS, VALID_VIDEO_FORMATS, VALID_RESOLUTIONS
 
 logger = logging.getLogger(__name__)
 
@@ -99,10 +99,10 @@ def _resolve_output_dir(output_dir: str) -> str:
     return os.path.abspath(output_dir)
 
 
-def _build_options(fmt: str) -> DownloadOptions:
+def _build_options(fmt: str, quality: str = "best") -> DownloadOptions:
     if fmt in VALID_AUDIO_FORMATS:
         return DownloadOptions(mode="audio", audio_format=fmt)
-    return DownloadOptions(mode="video", quality="best", video_format=fmt)
+    return DownloadOptions(mode="video", quality=quality, video_format=fmt)
 
 
 def _fetch_playlist_info(url: str) -> dict:
@@ -154,6 +154,7 @@ def cmd_add(args: argparse.Namespace) -> int:
             playlist_name,
             url,
             fmt=args.format,
+            quality=args.quality,
             output_dir=_resolve_output_dir(args.output_dir),
         )
     except ValueError:
@@ -173,6 +174,7 @@ def cmd_add(args: argparse.Namespace) -> int:
             playlist_name=playlist_name,
             url=url,
             fmt=args.format,
+            quality=args.quality,
             output_dir=_resolve_output_dir(args.output_dir),
             mb_user_agent=mb_user_agent,
             data_dir=data_dir,
@@ -190,12 +192,13 @@ def _sync_one(
     playlist_name: str,
     url: str,
     fmt: str,
+    quality: str,
     output_dir: str,
     mb_user_agent: str,
     data_dir: str,
 ) -> None:
     archive = registry.archive_path(playlist_id)
-    options = _build_options(fmt)
+    options = _build_options(fmt, quality)
 
     def on_item(record: ItemRecord) -> None:
         registry.insert_item(record, playlist_id)
@@ -309,6 +312,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         pname = row["name"]
         url = row["url"]
         fmt = row["format"]
+        quality = row["quality"] or "best"
         output_dir = row["output_dir"] or _resolve_output_dir(_DEFAULT_OUTPUT_DIR)
         print(f"Syncing '{pname}'…")
         try:
@@ -317,6 +321,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
                 playlist_name=pname,
                 url=url,
                 fmt=fmt,
+                quality=quality,
                 output_dir=output_dir,
                 mb_user_agent=mb_user_agent,
                 data_dir=data_dir,
@@ -494,6 +499,7 @@ def main() -> None:
     p_add.add_argument("url", help="YouTube playlist URL.")
     p_add.add_argument("--download", action="store_true", help="Download all items immediately after registering.")
     p_add.add_argument("--format", default="mp3", choices=_ALL_FORMATS, help="Output format (default: mp3).")
+    p_add.add_argument("--quality", default="best", choices=sorted(VALID_RESOLUTIONS), help="Video quality: best, 2160, 1080, 720, 480, 360 (default: best). Only applies to video formats.")
     p_add.add_argument("--output-dir", default=_DEFAULT_OUTPUT_DIR, help="Root directory for downloads.")
 
     # -- sync --

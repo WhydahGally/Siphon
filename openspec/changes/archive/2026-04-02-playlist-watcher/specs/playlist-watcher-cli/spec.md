@@ -24,6 +24,14 @@ The system SHALL expose a `siphon` command installed via `pyproject.toml` `[proj
 - **WHEN** `siphon add <url> --download` is called
 - **THEN** the CLI SHALL register the playlist and immediately begin downloading all items, persisting each item record via `on_item_complete`
 
+#### Scenario: Add with --format and --quality
+- **WHEN** `siphon add <url> --format mp4 --quality 1080` is called
+- **THEN** the CLI SHALL register the playlist with `format=mp4` and `quality=1080`; both SHALL be persisted in the registry and reused on every subsequent `siphon sync`
+- **WHEN** `--quality` is omitted
+- **THEN** `quality` SHALL default to `"best"`
+- **WHEN** `--quality` is provided with a non-video format (e.g. `mp3`)
+- **THEN** the `quality` value SHALL be stored but ignored by the download engine (audio mode does not use quality)
+
 #### Scenario: Add a playlist already registered
 - **WHEN** `siphon add <url>` is called and the playlist ID is already in the registry
 - **THEN** the CLI SHALL print an error ("Playlist already registered. Use 'siphon sync' to fetch new items.") and exit with a non-zero code

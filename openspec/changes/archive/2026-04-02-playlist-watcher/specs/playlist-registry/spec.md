@@ -17,11 +17,11 @@ The system SHALL maintain a SQLite database at `.data/siphon.db` that stores all
 The registry SHALL support registering, retrieving, and listing playlists.
 
 #### Scenario: Register a new playlist
-- **WHEN** `registry.add_playlist(id, name, url, fmt, output_dir)` is called and no playlist with that `id` exists
-- **THEN** a row SHALL be inserted into `playlists` with `added_at` set to the current UTC ISO 8601 timestamp, `last_synced_at` set to NULL, and `format` and `output_dir` stored for use by future syncs
+- **WHEN** `registry.add_playlist(id, name, url, fmt, quality, output_dir)` is called and no playlist with that `id` exists
+- **THEN** a row SHALL be inserted into `playlists` with `added_at` set to the current UTC ISO 8601 timestamp, `last_synced_at` set to NULL, and `format`, `quality`, and `output_dir` stored for use by future syncs
 
 #### Scenario: Register a duplicate playlist
-- **WHEN** `registry.add_playlist(id, name, url, fmt, output_dir)` is called and a playlist with that `id` already exists
+- **WHEN** `registry.add_playlist(id, name, url, fmt, quality, output_dir)` is called and a playlist with that `id` already exists
 - **THEN** the registry SHALL raise a `ValueError` indicating the playlist is already registered
 
 #### Scenario: List all playlists

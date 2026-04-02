@@ -38,6 +38,7 @@
 - [x] 5.5 Implement `cmd_sync` (with name arg): look up playlist by name, error with helpful message if not found, then sync that playlist
 - [x] 5.6 Implement `cmd_list`: query registry, print formatted table (NAME, URL, ITEMS, LAST SYNCED); handle empty registry
 - [x] 5.7 Wire `--format`, `--mb-user-agent`, and `--output-dir` options onto `add` and `sync` subcommands
+- [x] 5.9 Add `--quality` arg to `siphon add` (choices: `best`, `2160`, `1080`, `720`, `480`, `360`; default: `best`); persist as `quality` column in `playlists` table; pass through to `_sync_one` and `_build_options` on every sync
 - [x] 5.8 Implement `cmd_delete`: look up playlist by name (error if not found), print confirmation prompt with playlist name and item count, on confirm call `registry.delete_playlist()` and delete `.data/archives/<playlist_id>.txt` if it exists, on cancel print "Cancelled."
 
 ## 6. Verification
