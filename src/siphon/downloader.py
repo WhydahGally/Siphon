@@ -4,7 +4,7 @@ import os
 from typing import Callable, Optional
 
 from yt_dlp import YoutubeDL
-from yt_dlp.utils import DownloadError
+from yt_dlp.postprocessor import PostProcessor
 
 from siphon.formats import (
     DownloadOptions,
@@ -23,6 +23,8 @@ def download(
     output_dir: str,
     options: DownloadOptions,
     progress_callback: Optional[Callable[[dict], None]] = None,
+    mb_user_agent: Optional[str] = None,
+    auto_rename: bool = False,
 ) -> None:
     """
     Download a YouTube playlist or single video.
@@ -37,6 +39,11 @@ def download(
         progress_callback: Optional callable invoked with a ProgressEvent dict
                            on each yt-dlp progress tick. Errors in the callback
                            are caught and logged — they will not abort the download.
+        mb_user_agent:     Optional User-Agent string for MusicBrainz API lookups
+                           (e.g. 'Siphon/1.0 (you@example.com)'). When omitted,
+                           the MusicBrainz tier of the rename chain is skipped.
+        auto_rename:       If True, rename each downloaded file to 'Artist - Track'
+                           using the four-tier rename chain. Defaults to False.
 
     Raises:
         RuntimeError: If mp3 transcoding or mp4/mkv remuxing is requested but ffmpeg
@@ -59,23 +66,17 @@ def download(
             options=DownloadOptions(mode="audio", audio_format="mp3"),
         )
     """
-    # Guard: ffmpeg required for mp3 transcoding.
-    if options.mode == "audio" and options.audio_format == "mp3":
-        if not check_ffmpeg():
-            raise RuntimeError(
-                "ffmpeg was not found on the system PATH. "
-                "ffmpeg is required for MP3 transcoding. "
-                "Install it with: brew install ffmpeg  (macOS) or  apt install ffmpeg  (Linux)."
-            )
-
-    # Guard: ffmpeg required to remux video streams into mp4 or mkv.
-    if options.mode == "video" and options.video_format in {"mp4", "mkv"}:
-        if not check_ffmpeg():
-            raise RuntimeError(
-                "ffmpeg was not found on the system PATH. "
-                f"ffmpeg is required to remux video streams into {options.video_format}. "
-                "Install it with: brew install ffmpeg  (macOS) or  apt install ffmpeg  (Linux)."
-            )
+    # Guard: ffmpeg required for mp3 transcoding or mp4/mkv remuxing.
+    ffmpeg_needed = (
+        (options.mode == "audio" and options.audio_format == "mp3")
+        or (options.mode == "video" and options.video_format in {"mp4", "mkv"})
+    )
+    if ffmpeg_needed and not check_ffmpeg():
+        raise RuntimeError(
+            "ffmpeg was not found on the system PATH. "
+            "ffmpeg is required for transcoding/remuxing. "
+            "Install it with: brew install ffmpeg  (macOS) or  apt install ffmpeg  (Linux)."
+        )
 
     # Determine whether this is a playlist or a single video.
     # yt-dlp handles both with the same API; the output template differs.
@@ -91,7 +92,7 @@ def download(
         logger.debug("URL identified as single video. Output template: %s", output_template)
 
     # Build the yt-dlp options dict.
-    ydl_opts = _build_ydl_opts(options, output_template, progress_callback)
+    ydl_opts = _build_ydl_opts(options, output_template, progress_callback, mb_user_agent)
 
     logger.debug(
         "Starting download | url=%s | mode=%s | output_dir=%s",
@@ -101,6 +102,8 @@ def download(
     )
 
     with YoutubeDL(ydl_opts) as ydl:
+        if auto_rename:
+            ydl.add_post_processor(_RenamePostProcessor(mb_user_agent), when="after_move")
         ydl.download([url])
 
     logger.debug("Download session complete for url=%s", url)
@@ -114,6 +117,7 @@ def _build_ydl_opts(
     options: DownloadOptions,
     output_template: str,
     progress_callback: Optional[Callable[[dict], None]],
+    mb_user_agent: Optional[str] = None,
 ) -> dict:
     """Assemble the yt-dlp options dict from DownloadOptions."""
 
@@ -143,6 +147,28 @@ def _build_ydl_opts(
         logger.debug("Audio format: %s | postprocessors: %s", options.audio_format, ydl_opts["postprocessors"])
 
     return ydl_opts
+
+
+class _RenamePostProcessor(PostProcessor):
+    """
+    yt-dlp PostProcessor that invokes the renamer after all postprocessors
+    (including ffmpeg) have completed and the file has been moved to its final path.
+    Registered with when='after_move' so info_dict['filepath'] is the final file.
+    """
+
+    def __init__(self, mb_user_agent: Optional[str]) -> None:
+        super().__init__()
+        self._mb_user_agent = mb_user_agent
+        if not mb_user_agent:
+            logger.debug("renamer: MusicBrainz lookup skipped for this session: --mb-user-agent not configured")
+
+    def run(self, info: dict) -> tuple:
+        try:
+            renamer.rename_file(info, self._mb_user_agent)
+        except Exception as exc:
+            filepath = info.get("filepath") or info.get("filename", "")
+            logger.warning("renamer.rename_file raised an error for %s: %s", filepath, exc)
+        return [], info
 
 
 def _make_quality_check_filter(options: DownloadOptions) -> Callable[[dict], Optional[str]]:
@@ -178,22 +204,12 @@ def _make_hook(options: DownloadOptions, progress_callback: Optional[Callable[[d
     Return a yt-dlp progress hook that:
     - Maps the raw yt-dlp dict to a normalised ProgressEvent.
     - Warns when the actual downloaded quality differs from the requested quality.
-    - Calls the renamer hook when a file finishes downloading.
     - Forwards the event to the caller's progress_callback (if provided).
     - Catches and logs any exception raised by the callback.
     """
 
     def hook(d: dict) -> None:
         event = make_progress_event(d)
-
-        # Invoke the renamer on completed files.
-        if event["status"] == "finished" and event["filename"]:
-            logger.debug("Download finished: %s", event["filename"])
-
-            try:
-                renamer.rename_file(event["filename"])
-            except Exception as exc:
-                logger.warning("renamer.rename_file raised an error for %s: %s", event["filename"], exc)
 
         # Forward progress to the caller.
         if progress_callback is not None:
@@ -269,6 +285,21 @@ if __name__ == "__main__":
         default="best",
         help="Video quality: best, 2160, 1080, 720, 480, 360 (default: best). Only used for video formats.",
     )
+    parser.add_argument(
+        "--mb-user-agent",
+        default=None,
+        help=(
+            "User-Agent string for MusicBrainz API calls (e.g. 'Siphon/1.0 (you@example.com)'). "
+            "Required to enable MusicBrainz lookup in the rename chain. "
+            "Must follow the format: AppName/version (contact-url-or-email)."
+        ),
+    )
+    parser.add_argument(
+        "--auto-rename",
+        action="store_true",
+        default=False,
+        help="Rename downloaded files to 'Artist - Track' format after download.",
+    )
 
     args = parser.parse_args()
 
@@ -308,6 +339,8 @@ if __name__ == "__main__":
             output_dir=args.output_dir,
             options=opts,
             progress_callback=_cli_progress,
+            mb_user_agent=args.mb_user_agent,
+            auto_rename=args.auto_rename,
         )
     except RuntimeError as exc:
         print(f"\nError: {exc}", file=sys.stderr)
