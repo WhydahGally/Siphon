@@ -27,6 +27,7 @@ import sys
 import argparse
 import logging
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Callable, List, Optional, Tuple
@@ -63,169 +64,6 @@ class FailureRecord:
     url: str
     error_message: str
 
-
-# ---------------------------------------------------------------------------
-# Parallel progress renderer
-# ---------------------------------------------------------------------------
-
-class ParallelProgressRenderer:
-    """
-    Fixed multi-slot progress display for concurrent downloads.
-
-    Each worker owns one slot (by index). Workers post status dicts to
-    their slot via post(). A background thread redraws the entire block
-    (completed items + summary line + active slots) at ~10 Hz using ANSI
-    cursor-up so lines update in place.
-
-    Completed items accumulate at the top of the block and remain visible
-    after stop() — only the empty slot lines are erased.
-    """
-
-    _REFRESH_HZ = 10
-
-    def __init__(self, num_slots: int, playlist_name: str, total: int) -> None:
-        self._num_slots = num_slots
-        self._playlist_name = playlist_name
-        self._total = total
-        self._completed = 0
-        self._slots: dict = {i: {} for i in range(num_slots)}
-        self._completed_lines: List[str] = []
-        self._lock = threading.Lock()
-        self._stop = threading.Event()
-        self._prev_lines_drawn: int = 0
-        self._thread = threading.Thread(target=self._render_loop, daemon=True)
-        self._thread.start()
-
-    def post(self, slot_index: int, status: dict) -> None:
-        with self._lock:
-            self._slots[slot_index] = status
-
-    def item_done(self, slot_index: int, success: bool, label: str, error: str = "") -> None:
-        with self._lock:
-            self._completed += 1
-            self._slots[slot_index] = {}
-            if success:
-                line = f"  \u2713 {label}"
-            else:
-                line = f"  \u2717 {label}" + (f" \u2014 {error}" if error else "")
-            self._completed_lines.append(f"{line:<80}")
-
-    def _render_loop(self) -> None:
-        import time
-        while not self._stop.is_set():
-            self._draw()
-            time.sleep(1.0 / self._REFRESH_HZ)
-        self._draw()  # final draw
-
-    def _draw(self) -> None:
-        with self._lock:
-            lines = []
-            for cl in self._completed_lines:
-                lines.append(cl)
-            summary = f"  Syncing '{self._playlist_name}': {self._completed} / {self._total} downloaded"
-            lines.append(f"{summary:<80}")
-            for i in range(self._num_slots):
-                st = self._slots.get(i, {})
-                lines.append(self._format_slot(st))
-
-            if self._prev_lines_drawn > 0:
-                print(f"\033[{self._prev_lines_drawn}A", end="", flush=False)
-            for line in lines:
-                print(f"\r{line:<80}", flush=False)
-            sys.stdout.flush()
-            self._prev_lines_drawn = len(lines)
-
-    @staticmethod
-    def _fmt_bytes(n: Optional[int]) -> str:
-        if n is None:
-            return "?"
-        if n < 1024:
-            return f"{n} B"
-        if n < 1024 ** 2:
-            return f"{n / 1024:.1f} KB"
-        if n < 1024 ** 3:
-            return f"{n / 1024 ** 2:.1f} MB"
-        return f"{n / 1024 ** 3:.2f} GB"
-
-    def _format_slot(self, st: dict) -> str:
-        if not st:
-            return ""
-        filename = os.path.basename(st.get("filename", ""))
-        status = st.get("status", "")
-        if status == "downloading":
-            dl = st.get("downloaded_bytes")
-            total = st.get("total_bytes")
-            speed = st.get("speed")
-            eta = st.get("eta")
-            parts = [f"  \u2193 {filename}"]
-            if total and dl is not None:
-                pct = dl / total * 100
-                parts.append(f"{pct:5.1f}%  {self._fmt_bytes(dl)} / {self._fmt_bytes(total)}")
-            elif dl is not None:
-                parts.append(self._fmt_bytes(dl))
-            if speed:
-                parts.append(f"{self._fmt_bytes(int(speed))}/s")
-            if eta is not None:
-                parts.append(f"ETA {eta}s")
-            return ("  ".join(parts))[:80]
-        return ""
-
-    def stop(self) -> None:
-        self._stop.set()
-        self._thread.join(timeout=2.0)
-        # Erase just the N empty slot lines at the bottom of the block,
-        # leaving completed items and the summary line intact.
-        if self._prev_lines_drawn > 0 and self._num_slots > 0:
-            print(f"\033[{self._num_slots}A\033[J", end="", flush=True)
-        print(flush=True)
-
-
-def _make_slot_callback(slot_index: int, renderer: ParallelProgressRenderer) -> Callable:
-    """Return a progress callback bound to a specific renderer slot."""
-    def callback(event: dict) -> None:
-        event["slot_index"] = slot_index
-        renderer.post(slot_index, event)
-    return callback
-
-
-def _make_cli_progress_callback() -> Callable:
-    """
-    Single-slot progress callback for standalone download() use (e.g. __main__).
-    Not used in the parallel sync path.
-    """
-    def _fmt_bytes(n: int) -> str:
-        if n < 1024:
-            return f"{n} B"
-        if n < 1024 ** 2:
-            return f"{n / 1024:.1f} KB"
-        if n < 1024 ** 3:
-            return f"{n / 1024 ** 2:.1f} MB"
-        return f"{n / 1024 ** 3:.2f} GB"
-
-    def callback(event: dict) -> None:
-        status = event.get("status", "")
-        filename = os.path.basename(event.get("filename", ""))
-        if status == "downloading":
-            dl = event.get("downloaded_bytes") or 0
-            total = event.get("total_bytes")
-            speed = event.get("speed")
-            eta = event.get("eta")
-            parts = [f"  \u2193 {filename}"]
-            if total:
-                pct = dl / total * 100
-                parts.append(f"{pct:5.1f}%  {_fmt_bytes(dl)} / {_fmt_bytes(total)}")
-            else:
-                parts.append(_fmt_bytes(dl))
-            if speed:
-                parts.append(f"{_fmt_bytes(int(speed))}/s")
-            if eta is not None:
-                parts.append(f"ETA {eta}s")
-            line = "  ".join(parts)
-            print(f"\r{line:<80}", end="", flush=True)
-        elif status == "finished":
-            print(f"\r  \u2713 {filename:<77}", flush=True)
-
-    return callback
 
 
 # ---------------------------------------------------------------------------
@@ -334,6 +172,19 @@ def _filter_entries(
     return to_dispatch
 
 
+def _fmt_size(path: str) -> str:
+    """Return a human-readable file size string, or '?' if the file cannot be read."""
+    try:
+        n = os.path.getsize(path)
+    except OSError:
+        return "?"
+    if n < 1024 ** 2:
+        return f"{n / 1024:.1f} KB"
+    if n < 1024 ** 3:
+        return f"{n / 1024 ** 2:.1f} MB"
+    return f"{n / 1024 ** 3:.2f} GB"
+
+
 def _download_one(
     entry: dict,
     playlist_id: str,
@@ -341,15 +192,14 @@ def _download_one(
     options: DownloadOptions,
     output_dir: str,
     mb_user_agent: Optional[str],
-    slot_index: int,
-    renderer: ParallelProgressRenderer,
+    print_lock: threading.Lock,
     auto_rename: bool = False,
 ) -> Tuple[Optional[ItemRecord], Optional[FailureRecord]]:
     """
     Worker function: download a single video entry.
 
-    On success: writes item to DB, clears any prior failure record, signals renderer.
-    On failure: writes failure to DB, signals renderer.
+    On success: writes item to DB, clears any prior failure record, prints result.
+    On failure: writes failure to DB, prints error.
 
     Returns (ItemRecord, None) on success or (None, FailureRecord) on failure.
     """
@@ -367,14 +217,15 @@ def _download_one(
     def on_item(record: ItemRecord) -> None:
         item_result.append(record)
 
-    progress_cb = _make_slot_callback(slot_index, renderer)
+    start = time.monotonic()
+    lines: list = []
 
     try:
         download(
             url=video_url,
             output_dir=item_output_dir,
             options=options,
-            progress_callback=progress_cb,
+            progress_callback=None,
             mb_user_agent=mb_user_agent,
             auto_rename=auto_rename,
             on_item_complete=on_item,
@@ -383,9 +234,13 @@ def _download_one(
         err = str(exc)
         logger.warning("Download failed for '%s' (id=%s): %s", title, video_id, err)
         registry.insert_failed(video_id, playlist_id, title, video_url, err)
-        renderer.item_done(slot_index, success=False, label=title, error=err)
+        lines.append(f"  \u2717 {title} \u2014 {err}")
+        with print_lock:
+            for line in lines:
+                print(line)
         return None, FailureRecord(video_id=video_id, title=title, url=video_url, error_message=err)
 
+    elapsed = time.monotonic() - start
     record = item_result[0] if item_result else ItemRecord(
         video_id=video_id,
         playlist_id=playlist_id,
@@ -398,8 +253,22 @@ def _download_one(
     )
     registry.insert_item(record, playlist_id)
     registry.clear_failed(video_id, playlist_id)  # no-op if no prior failure
+
     filename = record.renamed_to or title
-    renderer.item_done(slot_index, success=True, label=filename)
+
+    # Determine file size from disk.
+    ext = f".{options.audio_format}" if options.mode == "audio" else f".{options.video_format}"
+    candidate_path = os.path.join(item_output_dir, f"{filename}{ext}")
+    size_str = _fmt_size(candidate_path) if os.path.isfile(candidate_path) else "?"
+
+    lines.append(f"  \u2713 {filename}  [{size_str} \u00b7 {elapsed:.0f}s]")
+    if auto_rename and record.rename_tier is not None:
+        lines.append(f'    renamed: "{record.yt_title}" \u2192 "{record.renamed_to}"  [{record.rename_tier}]')
+
+    with print_lock:
+        for line in lines:
+            print(line)
+
     return record, None
 
 
@@ -432,8 +301,7 @@ def download_parallel(
             "Install it with: brew install ffmpeg  (macOS) or  apt install ffmpeg  (Linux)."
         )
 
-    num_slots = min(max_workers, len(entries))
-    renderer = ParallelProgressRenderer(num_slots, playlist_name, len(entries))
+    print_lock = threading.Lock()
 
     successes: List[ItemRecord] = []
     failures: List[FailureRecord] = []
@@ -441,11 +309,10 @@ def download_parallel(
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {}
         for i, entry in enumerate(entries):
-            slot = i % num_slots
             fut = executor.submit(
                 _download_one,
                 entry, playlist_id, playlist_name, options, output_dir,
-                mb_user_agent, slot, renderer, auto_rename,
+                mb_user_agent, print_lock, auto_rename,
             )
             futures[fut] = entry
 
@@ -469,7 +336,6 @@ def download_parallel(
             if failure is not None:
                 failures.append(failure)
 
-    renderer.stop()
     return successes, failures
 
 
@@ -576,6 +442,10 @@ def _sync_one(
         total = registry.count_items(playlist_id)
         print(f"  {playlist_name}: Already up to date. ({total} total)")
         return
+
+    print(f"  {len(to_download)} new item(s) to download:")
+    for idx, entry in enumerate(to_download, 1):
+        print(f"    {idx}. {entry['title']}")
 
     successes, failures = download_parallel(
         entries=to_download,
