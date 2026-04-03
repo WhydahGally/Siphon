@@ -18,13 +18,13 @@
 
 ## Decisions
 
-### D1: Per-item output via logger, ordered within each item
+### D1: Per-item output grouped with a print lock
 
-**Decision:** `_download_one` emits all result lines via `logger.info`/`logger.warning` after `download()` returns. On success: `✓ <filename>  [<size> · <elapsed>s]` first, then `Renamed: "<original>" → "<final>"  [<tier>]` if auto_rename is active. On failure: `✗ <title> — <error>`.
+**Decision:** `_download_one` accumulates all output lines for one item into a local `list[str]`, then acquires a shared `threading.Lock` and prints them all in one block before releasing. The lock is created in `download_parallel` and passed into each worker.
 
-**Rationale:** All output goes through the logging system — timestamps, log level, and logger name are consistent across every line. The `✓` and `Renamed:` lines for the same item are always in the correct order because they are emitted sequentially from `_download_one` after `download()` returns. Cross-item interleaving is best-effort (see Risks).
+**Rationale:** With N threads printing independently, individual `print()` calls from different threads can interleave at the line boundary (two threads' lines mixed together), but not within a single `print()` call (the GIL makes individual writes atomic on CPython). Grouping all lines for one item and holding the lock for the duration of the entire group guarantees clean, readable output — all lines for item A, then all lines for item B, regardless of completion order.
 
-**Alternative considered:** A shared `threading.Lock` + `print()` grouped output — initially implemented, then removed to eliminate duplicate output caused by renamer also emitting independently. The current approach avoids duplication by keeping all emission in `_download_one` using `ItemRecord.rename_tier`/`renamed_to` (populated by the PostProcessor).
+**Alternative considered:** A shared queue with a single dedicated printer thread — rejected as unnecessary complexity for what is just `print()` calls.
 
 ---
 
@@ -36,13 +36,13 @@
 
 ---
 
-### D3: Rename outcome logged from `_download_one` via `ItemRecord`
+### D3: One `logger.info` in renamer, at the point of successful rename
 
-**Decision:** After `download()` returns, `_download_one` reads `record.rename_tier` and `record.renamed_to` from the `ItemRecord` (populated by the PostProcessor inside `download()`) and emits the `Renamed:` line. The four `logger.debug("renamer: tier X resolved…")` calls in `renamer.py` remain at DEBUG level.
+**Decision:** Replace the four separate `logger.debug("renamer: tier X resolved…")` calls in `rename_file` with a single `logger.info` call emitted after the `RenameResult` is constructed, containing original title, final name, and tier. All other renamer log calls stay at `DEBUG`.
 
-**Rationale:** `ItemRecord` already carries all the rename outcome data needed for the log line. Emitting from `_download_one` avoids coupling renamer to the parallel engine and keeps renamer's own logging at DEBUG where it belongs. The rename tier and names are visible at INFO level via the `_download_one` log without any changes to renamer internals.
+**Rationale:** The tier and names are only known after resolution succeeds. A single INFO-level log at that point is the minimal change: it surfaces the rename outcome when the caller runs with `--log-level info` (or the default if INFO is the floor), and costs nothing extra for callers running at WARNING or above.
 
-**Open question:** There is a desire to have the rename log originate from `siphon.renamer` in the logger name (for filtering). This is deferred — rework pending.
+**Note:** The CLI print path in `_download_one` also prints rename info from `ItemRecord.rename_tier` and `ItemRecord.renamed_to` — that is independent of this log. The INFO log covers file-based and piped-log use cases; the print covers interactive terminal use.
 
 ---
 
