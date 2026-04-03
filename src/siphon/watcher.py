@@ -26,11 +26,10 @@ import os
 import sys
 import argparse
 import logging
-import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 from yt_dlp import YoutubeDL
 
@@ -192,14 +191,13 @@ def _download_one(
     options: DownloadOptions,
     output_dir: str,
     mb_user_agent: Optional[str],
-    print_lock: threading.Lock,
     auto_rename: bool = False,
 ) -> Tuple[Optional[ItemRecord], Optional[FailureRecord]]:
     """
     Worker function: download a single video entry.
 
-    On success: writes item to DB, clears any prior failure record, prints result.
-    On failure: writes failure to DB, prints error.
+    On success: writes item to DB, clears any prior failure record, logs result.
+    On failure: writes failure to DB, logs error.
 
     Returns (ItemRecord, None) on success or (None, FailureRecord) on failure.
     """
@@ -218,7 +216,6 @@ def _download_one(
         item_result.append(record)
 
     start = time.monotonic()
-    lines: list = []
 
     try:
         download(
@@ -232,12 +229,8 @@ def _download_one(
         )
     except Exception as exc:
         err = str(exc)
-        logger.warning("Download failed for '%s' (id=%s): %s", title, video_id, err)
         registry.insert_failed(video_id, playlist_id, title, video_url, err)
-        lines.append(f"  \u2717 {title} \u2014 {err}")
-        with print_lock:
-            for line in lines:
-                print(line)
+        logger.warning("  \u2717 %s \u2014 %s", title, err)
         return None, FailureRecord(video_id=video_id, title=title, url=video_url, error_message=err)
 
     elapsed = time.monotonic() - start
@@ -261,13 +254,9 @@ def _download_one(
     candidate_path = os.path.join(item_output_dir, f"{filename}{ext}")
     size_str = _fmt_size(candidate_path) if os.path.isfile(candidate_path) else "?"
 
-    lines.append(f"  \u2713 {filename}  [{size_str} \u00b7 {elapsed:.0f}s]")
+    logger.info("  \u2713 %s  [%s \u00b7 %ds]", filename, size_str, int(elapsed))
     if auto_rename and record.rename_tier is not None:
-        lines.append(f'    renamed: "{record.yt_title}" \u2192 "{record.renamed_to}"  [{record.rename_tier}]')
-
-    with print_lock:
-        for line in lines:
-            print(line)
+        logger.info('    Renamed: "%s" \u2192 "%s"  [%s]', record.yt_title, record.renamed_to, record.rename_tier)
 
     return record, None
 
@@ -301,8 +290,6 @@ def download_parallel(
             "Install it with: brew install ffmpeg  (macOS) or  apt install ffmpeg  (Linux)."
         )
 
-    print_lock = threading.Lock()
-
     successes: List[ItemRecord] = []
     failures: List[FailureRecord] = []
 
@@ -312,7 +299,7 @@ def download_parallel(
             fut = executor.submit(
                 _download_one,
                 entry, playlist_id, playlist_name, options, output_dir,
-                mb_user_agent, print_lock, auto_rename,
+                mb_user_agent, auto_rename,
             )
             futures[fut] = entry
 

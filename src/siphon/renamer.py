@@ -71,7 +71,7 @@ def rename_file(info_dict: dict, mb_user_agent: Optional[str] = None) -> Optiona
         artist = _resolve_primary_artist(artist, info_dict)
         final_name = f"{artist} - {track}"
         new_path = _do_rename(filepath, final_name)
-        logger.info("renamed: '%s' \u2192 '%s'  [yt_metadata]", yt_title, final_name)
+        logger.debug("renamer: tier 1 resolved via YT metadata")
         return RenameResult(original_title=yt_title, final_name=final_name, tier="yt_metadata", new_path=new_path)
 
     # Tier 1.5: Title separator parsing
@@ -79,7 +79,7 @@ def rename_file(info_dict: dict, mb_user_agent: Optional[str] = None) -> Optiona
     if artist_hint and track_hint:
         final_name = f"{sanitize(artist_hint)} - {sanitize(track_hint)}"
         new_path = _do_rename(filepath, final_name)
-        logger.info("renamed: '%s' \u2192 '%s'  [title_separator]", yt_title, final_name)
+        logger.debug("renamer: tier 1.5 resolved via title separator")
         return RenameResult(original_title=yt_title, final_name=final_name, tier="title_separator", new_path=new_path)
 
     # Tier 2: MusicBrainz lookup
@@ -90,7 +90,7 @@ def rename_file(info_dict: dict, mb_user_agent: Optional[str] = None) -> Optiona
             if recordings and _mb_passes_threshold(recordings[0], yt_title):
                 final_name = _mb_format_name(recordings[0])
                 new_path = _do_rename(filepath, final_name)
-                logger.info("renamed: '%s' \u2192 '%s'  [musicbrainz]", yt_title, final_name)
+                logger.debug("renamer: tier 2 resolved via MusicBrainz")
                 return RenameResult(original_title=yt_title, final_name=final_name, tier="musicbrainz", new_path=new_path)
             else:
                 logger.debug("renamer: tier 2 result below threshold, falling through")
@@ -98,7 +98,7 @@ def rename_file(info_dict: dict, mb_user_agent: Optional[str] = None) -> Optiona
     # Tier 3: YT title fallback
     final_name = sanitize(yt_title) if yt_title else "unknown"
     new_path = _do_rename(filepath, final_name)
-    logger.info("renamed: '%s' \u2192 '%s'  [yt_title_fallback]", yt_title, final_name)
+    logger.debug("renamer: tier 3 fallback to YT title")
     return RenameResult(original_title=yt_title, final_name=final_name, tier="yt_title_fallback", new_path=new_path)
 
 
