@@ -333,20 +333,19 @@ def download_parallel(
 def cmd_add(args: argparse.Namespace) -> int:
     url = args.url
     if "list=" not in url and "/playlist" not in url:
-        print("Error: Only playlist URLs are supported by 'siphon add'.", file=sys.stderr)
-        print("       A playlist URL must contain 'list=' (e.g. ?list=PLxxx).", file=sys.stderr)
+        logger.error("Only playlist URLs are supported by 'siphon add'. A playlist URL must contain 'list=' (e.g. ?list=PLxxx).")
         return 1
 
     data_dir = _resolve_data_dir()
     registry.init_db(data_dir)
 
-    print(f"Fetching playlist info from YouTube…")
+    logger.info("Fetching playlist info from YouTube…")
     info = _fetch_playlist_info(url)
     playlist_id = info.get("id") or info.get("playlist_id")
     playlist_name = info.get("title") or info.get("playlist_title")
 
     if not playlist_id or not playlist_name:
-        print("Error: Could not retrieve playlist ID or title from YouTube.", file=sys.stderr)
+        logger.error("Could not retrieve playlist ID or title from YouTube.")
         return 1
 
     try:
@@ -360,16 +359,13 @@ def cmd_add(args: argparse.Namespace) -> int:
             auto_rename=args.rename,
         )
     except ValueError:
-        print(
-            f"Error: Playlist already registered. Use 'siphon sync' to fetch new items.",
-            file=sys.stderr,
-        )
+        logger.error("Playlist already registered. Use 'siphon sync' to fetch new items.")
         return 1
 
-    print(f"Registered: {playlist_name}  (ID: {playlist_id})")
+    logger.info("Registered: %s  (ID: %s)", playlist_name, playlist_id)
 
     if args.download:
-        print(f"Syncing '{playlist_name}'…")
+        logger.info("Syncing '%s'…", playlist_name)
         mb_user_agent = registry.get_setting("mb_user_agent")
         max_workers = _get_max_workers()
         _sync_one(
@@ -415,24 +411,24 @@ def _sync_one(
 ) -> None:
     options = _build_options(fmt, quality)
 
-    print(f"  Enumerating '{playlist_name}'…")
+    logger.info("  Enumerating '%s'…", playlist_name)
     entries = enumerate_entries(url)
     if not entries:
         logger.warning("No entries found for playlist '%s' (url=%s)", playlist_name, url)
         registry.update_last_synced(playlist_id)
-        print(f"  {playlist_name}: No entries found (playlist may be empty or unavailable).")
+        logger.info("  %s: No entries found (playlist may be empty or unavailable).", playlist_name)
         return
 
     to_download = _filter_entries(entries, playlist_id)
     if not to_download:
         registry.update_last_synced(playlist_id)
         total = registry.count_items(playlist_id)
-        print(f"  {playlist_name}: Already up to date. ({total} total)")
+        logger.info("  %s: Already up to date. (%d total)", playlist_name, total)
         return
 
-    print(f"  {len(to_download)} new item(s) to download:")
+    logger.info("  %d new item(s) to download:", len(to_download))
     for idx, entry in enumerate(to_download, 1):
-        print(f"    {idx}. {entry['title']}")
+        logger.info("    %d. %s", idx, entry["title"])
 
     successes, failures = download_parallel(
         entries=to_download,
@@ -447,13 +443,13 @@ def _sync_one(
 
     registry.update_last_synced(playlist_id)
     total = registry.count_items(playlist_id)
-    print(f"  {playlist_name}: {len(successes)} new item(s) added. ({total} total)")
+    logger.info("  %s: %d new item(s) added. (%d total)", playlist_name, len(successes), total)
 
     if failures:
-        print(f"\n  Failures ({len(failures)}):")
+        logger.info("  Failures (%d):", len(failures))
         for f in failures:
-            print(f"    \u2717 {f.title}")
-            print(f"      {f.error_message}")
+            logger.info("    \u2717 %s", f.title)
+            logger.info("      %s", f.error_message)
 
 
 def cmd_sync(args: argparse.Namespace) -> int:
@@ -471,10 +467,9 @@ def cmd_sync(args: argparse.Namespace) -> int:
     if name_filter:
         row = registry.get_playlist_by_name(name_filter)
         if row is None:
-            print(
-                f"Error: No playlist named '{name_filter}'. "
-                "Run 'siphon list' to see registered playlists.",
-                file=sys.stderr,
+            logger.error(
+                "No playlist named '%s'. Run 'siphon list' to see registered playlists.",
+                name_filter,
             )
             return 1
         targets = [row]
@@ -491,7 +486,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         quality = row["quality"] or "best"
         output_dir = row["output_dir"] or _resolve_output_dir(_DEFAULT_OUTPUT_DIR)
         auto_rename = bool(row["auto_rename"])
-        print(f"Syncing '{pname}'\u2026")
+        logger.info("Syncing '%s'…", pname)
         try:
             _sync_one(
                 playlist_id=pid,
@@ -506,7 +501,6 @@ def cmd_sync(args: argparse.Namespace) -> int:
             )
         except Exception as exc:
             logger.warning("Sync failed for '%s': %s", pname, exc)
-            print(f"  Warning: sync failed for '{pname}': {exc}", file=sys.stderr)
             registry.update_last_synced(pid)
 
     return 0
@@ -559,10 +553,9 @@ def cmd_delete(args: argparse.Namespace) -> int:
     name = args.name
     row = registry.get_playlist_by_name(name)
     if row is None:
-        print(
-            f"Error: No playlist named '{name}'. "
-            "Run 'siphon list' to see registered playlists.",
-            file=sys.stderr,
+        logger.error(
+            "No playlist named '%s'. Run 'siphon list' to see registered playlists.",
+            name,
         )
         return 1
 
@@ -599,10 +592,9 @@ def cmd_sync_failed(args: argparse.Namespace) -> int:
     if name_filter:
         row = registry.get_playlist_by_name(name_filter)
         if row is None:
-            print(
-                f"Error: No playlist named '{name_filter}'. "
-                "Run 'siphon list' to see registered playlists.",
-                file=sys.stderr,
+            logger.error(
+                "No playlist named '%s'. Run 'siphon list' to see registered playlists.",
+                name_filter,
             )
             return 1
         targets = [row]
@@ -617,7 +609,7 @@ def cmd_sync_failed(args: argparse.Namespace) -> int:
         if not failures:
             continue
         any_failures = True
-        print(f"Retrying {len(failures)} failure(s) for '{pname}'…")
+        logger.info("Retrying %d failure(s) for '%s'…", len(failures), pname)
         options = _build_options(row["format"], row["quality"] or "best")
         output_dir = row["output_dir"] or _resolve_output_dir(_DEFAULT_OUTPUT_DIR)
         auto_rename = bool(row["auto_rename"])
@@ -626,6 +618,9 @@ def cmd_sync_failed(args: argparse.Namespace) -> int:
             {"id": f["video_id"], "url": f["url"], "title": f["yt_title"]}
             for f in failures
         ]
+        logger.info("  %d item(s) to retry:", len(entries))
+        for idx, entry in enumerate(entries, 1):
+            logger.info("    %d. %s", idx, entry["title"])
         successes, new_failures = download_parallel(
             entries=entries,
             playlist_id=pid,
@@ -636,15 +631,15 @@ def cmd_sync_failed(args: argparse.Namespace) -> int:
             max_workers=max_workers,
             auto_rename=auto_rename,
         )
-        print(f"  {pname}: {len(successes)} recovered, {len(new_failures)} still failing.")
+        logger.info("  %s: %d recovered, %d still failing.", pname, len(successes), len(new_failures))
         if new_failures:
             for f in new_failures:
-                print(f"    \u2717 {f.title}: {f.error_message}")
+                logger.info("    \u2717 %s: %s", f.title, f.error_message)
 
     if name_filter and not any_failures:
-        print(f"No failures recorded for '{name_filter}'.")
+        logger.info("No failures recorded for '%s'.", name_filter)
     elif not any_failures:
-        print("No failures recorded.")
+        logger.info("No failures recorded.")
 
     return 0
 
@@ -680,7 +675,7 @@ def cmd_config(args: argparse.Namespace) -> int:
     key_arg = args.key
     if key_arg not in _KNOWN_KEYS:
         known = ", ".join(_KNOWN_KEYS)
-        print(f"Error: Unknown config key '{key_arg}'. Known keys: {known}", file=sys.stderr)
+        logger.error("Unknown config key '%s'. Known keys: %s", key_arg, known)
         return 1
 
     db_key, description = _KNOWN_KEYS[key_arg]
@@ -696,26 +691,20 @@ def cmd_config(args: argparse.Namespace) -> int:
 
     # Write mode — validate log-level and max-concurrent-downloads before persisting.
     if key_arg == "log-level" and args.value.upper() not in _VALID_LOG_LEVELS:
-        print(
-            f"Error: Invalid log-level '{args.value}'. "
-            f"Valid values: {', '.join(sorted(_VALID_LOG_LEVELS))}",
-            file=sys.stderr,
+        logger.error(
+            "Invalid log-level '%s'. Valid values: %s",
+            args.value,
+            ', '.join(sorted(_VALID_LOG_LEVELS)),
         )
         return 1
     if key_arg == "max-concurrent-downloads":
         try:
             int_val = int(args.value)
         except ValueError:
-            print(
-                f"Error: max-concurrent-downloads must be an integer, got '{args.value}'.",
-                file=sys.stderr,
-            )
+            logger.error("max-concurrent-downloads must be an integer, got '%s'.", args.value)
             return 1
         if not (1 <= int_val <= _MAX_WORKERS_CEILING):
-            print(
-                f"Error: max-concurrent-downloads must be between 1 and {_MAX_WORKERS_CEILING}.",
-                file=sys.stderr,
-            )
+            logger.error("max-concurrent-downloads must be between 1 and %d.", _MAX_WORKERS_CEILING)
             return 1
     value = args.value.upper() if key_arg == "log-level" else args.value
     registry.set_setting(db_key, value)
