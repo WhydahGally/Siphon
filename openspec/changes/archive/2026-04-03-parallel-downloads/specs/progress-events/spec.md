@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Progress callback interface
 The engine SHALL call the `progress_callback` with a single dict argument on each yt-dlp progress event. The callback is optional; if not provided, progress events are silently dropped. In the parallel engine, each worker thread has its own callback bound to its slot index so the renderer can direct updates to the correct display slot.
@@ -31,10 +31,6 @@ Each progress event dict passed to the callback SHALL contain the following fiel
 #### Scenario: Downloading event (parallel mode)
 - **WHEN** a file download is in progress in the parallel engine
 - **THEN** the callback SHALL receive a dict with `status="downloading"`, available byte/speed/eta fields, and a `slot_index` identifying the worker
-
-#### Scenario: Downloading event (single)
-- **WHEN** a file download is in progress in standalone (non-parallel) usage
-- **THEN** the callback SHALL receive a dict with `status="downloading"` and available byte/speed/eta fields; `slot_index` is not present
 
 #### Scenario: Finished event
 - **WHEN** a file download completes

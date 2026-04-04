@@ -143,6 +143,10 @@ def _build_ydl_opts(
     progress_callback: Optional[Callable[[dict], None]],
     mb_user_agent: Optional[str] = None,
 ) -> dict:
+    # Thread-safety note: this function and the YoutubeDL instance it feeds
+    # are stateless with respect to module-level globals — each call creates
+    # a fresh dict and a fresh YoutubeDL instance (in download()).
+    # It is safe to call download() concurrently from multiple threads.
     """Assemble the yt-dlp options dict from DownloadOptions."""
 
     ydl_opts: dict = {

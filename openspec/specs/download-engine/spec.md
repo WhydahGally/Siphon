@@ -1,7 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Single public download function
-The engine SHALL expose one public function `download(url, output_dir, options, progress_callback=None, mb_user_agent=None, auto_rename=False, on_item_complete=None)`. The `on_item_complete` parameter is an optional callable that receives an `ItemRecord` after each item is fully downloaded and renamed.
+The engine SHALL expose one public function `download(url, output_dir, options, progress_callback=None, mb_user_agent=None, auto_rename=False, on_item_complete=None)`. The function SHALL accept either a single video URL or a playlist URL. In the parallel sync path, the engine is called with individual video URLs (one per thread); playlist URL support is retained for standalone and `__main__` usage.
+
+The function SHALL be safe to call from multiple threads simultaneously. Each invocation creates its own `YoutubeDL` instance with no shared mutable state between invocations.
+
+The `on_item_complete` parameter is an optional callable that receives an `ItemRecord` after each item is fully downloaded and renamed.
 
 `ItemRecord` fields:
 - `video_id` (str)
@@ -20,6 +24,14 @@ The engine SHALL expose one public function `download(url, output_dir, options, 
 #### Scenario: Single video URL is provided
 - **WHEN** a single video URL is passed to `download()`
 - **THEN** the engine SHALL download that one video directly into `<output_dir>/`
+
+#### Scenario: Single video URL dispatched from thread pool
+- **WHEN** a single video URL is passed to `download()` from a worker thread
+- **THEN** the engine SHALL download that one video, run postprocessors, invoke the rename chain, and return without affecting any other concurrently-running `download()` invocation
+
+#### Scenario: Concurrent invocations from multiple threads
+- **WHEN** `download()` is called simultaneously from N worker threads with N different video URLs
+- **THEN** each invocation SHALL complete independently; no shared state corruption SHALL occur
 
 #### Scenario: Playlist URL with on_item_complete provided
 - **WHEN** a playlist URL is passed and `on_item_complete` is a callable
