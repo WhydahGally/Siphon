@@ -6,7 +6,7 @@ The `2026-04-03-parallel-downloads` change introduced a `ParallelProgressRendere
 
 - **Remove** `ParallelProgressRenderer` class and all supporting infrastructure (`_make_slot_callback`, `_make_cli_progress_callback`) from `watcher.py`.
 - **Replace** the per-slot live display with plain append-only print lines, grouped per download item and flushed atomically when the item completes (via a shared `threading.Lock`).
-- **Print a planned-items list** in `_sync_one` before downloads begin: the filtered entries list (already computed from `extract_flat`) is printed as a numbered list of titles.
+- **Print a planned-items list** in `_sync_parallel` before downloads begin: the filtered entries list (already computed from `extract_flat`) is printed as a numbered list of titles.
 - **Print a per-item result block** when each item finishes: success line with file size and time taken, or failure line with error message.
 - **Add one `logger.info` call** in `renamer.rename_file` to log the old name, new name, and tier used. All other renamer logs stay at `DEBUG`.
 - **Delete dead code**: `_make_cli_progress_callback` is currently unreferenced and will be removed.
@@ -19,13 +19,13 @@ The `2026-04-03-parallel-downloads` change introduced a `ParallelProgressRendere
 
 ### Modified Capabilities
 
-- `download-engine`: The `progress_callback` parameter is no longer used in the parallel sync path (passed as `None`). The `_download_one` worker signature changes to remove `slot_index` and `renderer`, gaining `print_lock` instead.
+- `download-engine`: The `progress_callback` parameter is no longer used in the parallel sync path (passed as `None`). The `_download_worker` worker signature changes to remove `slot_index` and `renderer`.
 - `parallel-download-engine`: `download_parallel` no longer creates or manages a `ParallelProgressRenderer`. Output is plain log lines grouped per item.
 - `playlist-watcher-cli`: CLI output changes from a live rewriting display to a sequential log format: planned items list → per-item result blocks as they complete → summary line.
 
 ## Impact
 
-- `src/siphon/watcher.py` — primary change file; ~130 lines of renderer code deleted, `_download_one` and `download_parallel` signatures updated.
+- `src/siphon/watcher.py` — primary change file; ~130 lines of renderer code deleted, `_download_worker` and `download_parallel` signatures updated.
 - `src/siphon/renamer.py` — one `logger.debug` at the point of successful rename replaced with `logger.info`.
 - `src/siphon/progress.py` — no changes; `ProgressEvent` and `make_progress_event` remain (used by `downloader.py`'s hook).
 - `src/siphon/downloader.py` — no changes.

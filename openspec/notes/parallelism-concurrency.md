@@ -16,7 +16,7 @@ Switch from threads to processes when:
   In a process, it dies cleanly and the main process continues.
 
 The migration is intentionally low-cost if the worker function is kept pure:
-`_download_one(entry, options, ...) -> DownloadResult` must not touch shared
+`_download_worker(entry, options, ...) -> DownloadResult` must not touch shared
 mutable state. If that contract holds, swapping `ThreadPoolExecutor` for
 `ProcessPoolExecutor` is a one-line change.
 

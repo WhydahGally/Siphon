@@ -184,7 +184,7 @@ def _fmt_size(path: str) -> str:
     return f"{n / 1024 ** 3:.2f} GB"
 
 
-def _download_one(
+def _download_worker(
     entry: dict,
     playlist_id: str,
     playlist_name: str,
@@ -297,7 +297,7 @@ def download_parallel(
         futures = {}
         for i, entry in enumerate(entries):
             fut = executor.submit(
-                _download_one,
+                _download_worker,
                 entry, playlist_id, playlist_name, options, output_dir,
                 mb_user_agent, auto_rename,
             )
@@ -307,7 +307,7 @@ def download_parallel(
             try:
                 record, failure = fut.result()
             except Exception as exc:
-                # Unexpected error not caught in _download_one
+                # Unexpected error not caught in _download_worker
                 entry = futures[fut]
                 failure = FailureRecord(
                     video_id=entry["id"],
@@ -368,7 +368,7 @@ def cmd_add(args: argparse.Namespace) -> int:
         logger.info("Syncing '%s'…", playlist_name)
         mb_user_agent = registry.get_setting("mb_user_agent")
         max_workers = _get_max_workers()
-        _sync_one(
+        _sync_parallel(
             playlist_id=playlist_id,
             playlist_name=playlist_name,
             url=url,
@@ -398,7 +398,7 @@ def _get_max_workers() -> int:
     return _DEFAULT_MAX_WORKERS
 
 
-def _sync_one(
+def _sync_parallel(
     playlist_id: str,
     playlist_name: str,
     url: str,
@@ -484,7 +484,7 @@ def cmd_sync(args: argparse.Namespace) -> int:
         auto_rename = bool(row["auto_rename"])
         logger.info("Syncing '%s'…", pname)
         try:
-            _sync_one(
+            _sync_parallel(
                 playlist_id=pid,
                 playlist_name=pname,
                 url=url,

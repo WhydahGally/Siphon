@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Overall sync progress reporting
-The engine SHALL report progress by printing per-item result blocks as items complete. There is no live rewriting display. All output lines for a single item SHALL be flushed atomically via a shared `threading.Lock` so that concurrent threads do not interleave their output.
+The engine SHALL report progress by emitting per-item result log lines as items complete. There is no live rewriting display and no shared lock. Each `logger.info` / `logger.warning` call is individually atomic; consecutive lines from the same item (e.g. the `✓` line and the `Renamed:` line) may interleave with output from another item in rare cases of near-simultaneous completion — this is acceptable and by design for a debug-focused CLI.
 
 #### Scenario: Progress count during sync
 - **WHEN** a worker completes an item (success or failure)

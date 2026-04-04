@@ -6,8 +6,8 @@
 
 **Goals:**
 - Print a numbered list of items planned for download before any download starts.
-- Print a result block per item when it completes — success (filename, size, time) or failure (title, error message) — grouped and flushed atomically so lines from concurrent threads do not interleave.
-- Add one `logger.info` in the renamer so rename outcomes (old name → new name, tier) surface at INFO level without requiring DEBUG.
+- Emit a result log per item when it completes — success (filename, size, time) or failure (title, error message) — via `logger.info` / `logger.warning`.
+- Surface rename outcomes (old name → new name, tier) at INFO level from `_download_worker` in `watcher.py`.
 - Delete all renderer-related code and dead helpers.
 
 **Non-Goals:**
@@ -18,31 +18,31 @@
 
 ## Decisions
 
-### D1: Per-item output grouped with a print lock
+### D1: Per-item output via sequential logger calls (no lock)
 
-**Decision:** `_download_one` accumulates all output lines for one item into a local `list[str]`, then acquires a shared `threading.Lock` and prints them all in one block before releasing. The lock is created in `download_parallel` and passed into each worker.
+**Decision:** `_download_worker` calls `logger.info` / `logger.warning` directly for each output line — one call for the `✓` / `✗` line and, when a rename occurred, a second `logger.info` call for the rename line. No shared lock and no line accumulation. The `threading` import is removed from `watcher.py`.
 
-**Rationale:** With N threads printing independently, individual `print()` calls from different threads can interleave at the line boundary (two threads' lines mixed together), but not within a single `print()` call (the GIL makes individual writes atomic on CPython). Grouping all lines for one item and holding the lock for the duration of the entire group guarantees clean, readable output — all lines for item A, then all lines for item B, regardless of completion order.
+**Rationale:** Each individual `logging` call is serialised internally by the logging framework (the root handler acquires its own lock). Rare interleaving between the two log lines of a single item is acceptable for a debug-focused CLI — the planned-items list printed at the top gives a full ordered view before anything starts. Eliminating the lock and line-list simplifies the code with no meaningful cost to readability.
 
-**Alternative considered:** A shared queue with a single dedicated printer thread — rejected as unnecessary complexity for what is just `print()` calls.
+**Alternative considered:** A shared `threading.Lock` with line accumulation — prototyped and then reverted; the added complexity was not justified for a debug tool.
 
 ---
 
 ### D2: Size and elapsed time from ItemRecord / exception timing
 
-**Decision:** `_download_one` records `time.monotonic()` at entry and at completion to compute elapsed seconds. File size is read with `os.path.getsize()` on `record.rename_result.new_path` (or `renamed_to` resolved to disk), falling back to "?" if unavailable. Both are appended to the success output line.
+**Decision:** `_download_worker` records `time.monotonic()` at entry and at completion to compute elapsed seconds. File size is read with `os.path.getsize()` on `record.rename_result.new_path` (or `renamed_to` resolved to disk), falling back to "?" if unavailable. Both are appended to the success output line.
 
 **Rationale:** Elapsed time catches slow downloads without needing a live display. Size confirms something real was written. Both are available after the download completes without any changes to `downloader.py`.
 
 ---
 
-### D3: One `logger.info` in renamer, at the point of successful rename
+### D3: Rename outcome logged at INFO level from `_download_worker` in `watcher.py`
 
-**Decision:** Replace the four separate `logger.debug("renamer: tier X resolved…")` calls in `rename_file` with a single `logger.info` call emitted after the `RenameResult` is constructed, containing original title, final name, and tier. All other renamer log calls stay at `DEBUG`.
+**Decision:** After `download()` returns, `_download_worker` checks `record.rename_tier`; if a rename occurred it calls `logger.info('    Renamed: "%s" → "%s"  [%s]', yt_title, renamed_to, tier)`. The four `logger.debug("renamer: tier X resolved…")` calls inside `renamer.rename_file()` remain unchanged at DEBUG level.
 
-**Rationale:** The tier and names are only known after resolution succeeds. A single INFO-level log at that point is the minimal change: it surfaces the rename outcome when the caller runs with `--log-level info` (or the default if INFO is the floor), and costs nothing extra for callers running at WARNING or above.
+**Rationale:** Surfacing rename info from `_download_worker` avoids a duplicate-log problem: if `renamer.py` emits INFO and `_download_worker` also logs the same data, the user sees two rename lines per item. Keeping renamer at DEBUG and logging from `_download_one` once — after all post-processing is complete — is the simpler, cleaner approach. The rename tier and final path are available on `ItemRecord` after `download()` returns.
 
-**Note:** The CLI print path in `_download_one` also prints rename info from `ItemRecord.rename_tier` and `ItemRecord.renamed_to` — that is independent of this log. The INFO log covers file-based and piped-log use cases; the print covers interactive terminal use.
+**Alternative considered:** Single `logger.info` inside `renamer.rename_file()` — prototyped and then reverted due to the duplicate-log issue when combined with the `_download_worker` output path.
 
 ---
 
