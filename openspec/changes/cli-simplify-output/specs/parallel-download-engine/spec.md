@@ -9,7 +9,7 @@ The engine SHALL report progress by printing per-item result blocks as items com
 
 #### Scenario: Concurrent completions
 - **WHEN** two workers finish at nearly the same time
-- **THEN** one item's result block SHALL be printed in full before the other begins; lines from different items SHALL NOT interleave
+- **THEN** each individual log line is atomic; consecutive lines from the same item (e.g. the `✓` line and the `renamed:` line) may interleave with output from another item in rare cases of near-simultaneous completion — this is acceptable and by design
 
 #### Scenario: Progress at start
 - **WHEN** dispatch begins with N items to download

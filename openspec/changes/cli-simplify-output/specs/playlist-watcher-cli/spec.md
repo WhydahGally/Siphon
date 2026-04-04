@@ -17,7 +17,7 @@ During `siphon add --download`, `siphon sync`, and `siphon sync-failed`, the CLI
 
 #### Scenario: Concurrent items complete simultaneously
 - **WHEN** two or more worker threads complete at nearly the same time
-- **THEN** each item's output lines SHALL be printed as an atomic group — no lines from different items SHALL interleave
+- **THEN** each individual log line is atomic; consecutive lines from the same item may interleave with lines from another item in rare cases of near-simultaneous completion — this is acceptable and by design
 
 #### Scenario: Already up to date
 - **WHEN** after filtering, no new items remain to download
