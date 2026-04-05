@@ -1,5 +1,6 @@
 import os
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -10,22 +11,28 @@ from siphon.downloader import ItemRecord
 # Internal state
 # ---------------------------------------------------------------------------
 
-# The module-level connection is used only on the main thread (CLI commands).
-# Worker threads open their own short-lived connections via _thread_conn().
-_conn: Optional[sqlite3.Connection] = None
+# _data_dir is set at init_db() time and never changes. Thread-safe to read.
 _data_dir: Optional[str] = None
+
+# Each thread gets its own connection via thread-local storage.
+# Main-thread connection is used for CLI commands; FastAPI worker threads each
+# get their own lazily-created connection. WAL mode allows concurrent readers
+# and serialises writers internally without a Python-level lock.
+_local = threading.local()
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS playlists (
-    id             TEXT PRIMARY KEY,
-    name           TEXT NOT NULL,
-    url            TEXT NOT NULL,
-    format         TEXT NOT NULL DEFAULT 'mp3',
-    quality        TEXT NOT NULL DEFAULT 'best',
-    output_dir     TEXT NOT NULL,
-    auto_rename    INTEGER NOT NULL DEFAULT 0,
-    added_at       TEXT NOT NULL,
-    last_synced_at TEXT
+    id                  TEXT PRIMARY KEY,
+    name                TEXT NOT NULL,
+    url                 TEXT NOT NULL,
+    format              TEXT NOT NULL DEFAULT 'mp3',
+    quality             TEXT NOT NULL DEFAULT 'best',
+    output_dir          TEXT NOT NULL,
+    auto_rename         INTEGER NOT NULL DEFAULT 0,
+    watched             INTEGER NOT NULL DEFAULT 1,
+    check_interval_secs INTEGER,
+    added_at            TEXT NOT NULL,
+    last_synced_at      TEXT
 );
 
 CREATE TABLE IF NOT EXISTS items (
@@ -78,36 +85,59 @@ def init_db(data_dir: str) -> None:
     Creates .data/ on first run, opens (or creates) siphon.db, enables WAL
     mode, and applies the schema. Safe to call multiple times — idempotent.
     """
-    global _conn, _data_dir
+    global _data_dir
 
     _data_dir = data_dir
     os.makedirs(data_dir, exist_ok=True)
 
-    db_path = os.path.join(data_dir, "siphon.db")
-    _conn = sqlite3.connect(db_path)
-    _conn.row_factory = sqlite3.Row
+    # Open a connection on the calling thread and run schema/migrations.
+    conn = _open_conn(data_dir)
     # WAL mode: allows concurrent readers, serialises writers internally.
-    _conn.execute("PRAGMA journal_mode=WAL")
-    _conn.execute("PRAGMA foreign_keys = ON")
-    _conn.executescript(_SCHEMA)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.executescript(_SCHEMA)
     # Migrate existing DBs: add columns/tables introduced after initial schema.
     for stmt in (
         "ALTER TABLE playlists ADD COLUMN format TEXT NOT NULL DEFAULT 'mp3'",
         "ALTER TABLE playlists ADD COLUMN quality TEXT NOT NULL DEFAULT 'best'",
         "ALTER TABLE playlists ADD COLUMN output_dir TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE playlists ADD COLUMN auto_rename INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE playlists ADD COLUMN watched INTEGER NOT NULL DEFAULT 1",
+        "ALTER TABLE playlists ADD COLUMN check_interval_secs INTEGER",
     ):
         try:
-            _conn.execute(stmt)
+            conn.execute(stmt)
         except sqlite3.OperationalError:
             pass  # column already exists
-    _conn.commit()
+    conn.commit()
+    # Store as the calling thread's connection.
+    _local.conn = conn
+
+
+def _open_conn(data_dir: str) -> sqlite3.Connection:
+    """Open a new SQLite connection for the given data directory."""
+    db_path = os.path.join(data_dir, "siphon.db")
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 3000")
+    return conn
 
 
 def _get_conn() -> sqlite3.Connection:
-    if _conn is None:
+    """
+    Return a per-thread SQLite connection, creating one lazily if needed.
+
+    Each OS thread (main thread, FastAPI worker threads, scheduler timer
+    threads) gets its own connection. WAL mode on the DB means concurrent
+    readers and serialised writers work correctly without a Python lock.
+    """
+    if _data_dir is None:
         raise RuntimeError("Registry not initialised. Call init_db() first.")
-    return _conn
+    conn = getattr(_local, "conn", None)
+    if conn is None:
+        conn = _open_conn(_data_dir)
+        _local.conn = conn
+    return conn
 
 
 def _thread_conn() -> sqlite3.Connection:
@@ -133,7 +163,17 @@ def _now() -> str:
 # Playlist CRUD
 # ---------------------------------------------------------------------------
 
-def add_playlist(playlist_id: str, name: str, url: str, fmt: str, quality: str, output_dir: str, auto_rename: bool = False) -> None:
+def add_playlist(
+    playlist_id: str,
+    name: str,
+    url: str,
+    fmt: str,
+    quality: str,
+    output_dir: str,
+    auto_rename: bool = False,
+    watched: bool = True,
+    check_interval_secs: Optional[int] = None,
+) -> None:
     """Insert a new playlist. Raises ValueError if the playlist ID already exists."""
     conn = _get_conn()
     existing = conn.execute(
@@ -142,8 +182,8 @@ def add_playlist(playlist_id: str, name: str, url: str, fmt: str, quality: str, 
     if existing:
         raise ValueError(f"Playlist '{playlist_id}' is already registered.")
     conn.execute(
-        "INSERT INTO playlists (id, name, url, format, quality, output_dir, auto_rename, added_at, last_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)",
-        (playlist_id, name, url, fmt, quality, output_dir, int(auto_rename), _now()),
+        "INSERT INTO playlists (id, name, url, format, quality, output_dir, auto_rename, watched, check_interval_secs, added_at, last_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
+        (playlist_id, name, url, fmt, quality, output_dir, int(auto_rename), int(watched), check_interval_secs, _now()),
     )
     conn.commit()
 
@@ -182,6 +222,42 @@ def delete_playlist(playlist_id: str) -> None:
         conn.execute("DELETE FROM failed_downloads WHERE playlist_id = ?", (playlist_id,))
         conn.execute("DELETE FROM ignored_items WHERE playlist_id = ?", (playlist_id,))
         conn.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,))
+
+
+def get_playlist_by_id(playlist_id: str) -> Optional[sqlite3.Row]:
+    """Return the playlist row matching id, or None."""
+    conn = _get_conn()
+    return conn.execute(
+        "SELECT * FROM playlists WHERE id = ?", (playlist_id,)
+    ).fetchone()
+
+
+def get_watched_playlists() -> list:
+    """Return all playlists with watched=1, ordered by added_at ascending."""
+    conn = _get_conn()
+    return conn.execute(
+        "SELECT * FROM playlists WHERE watched = 1 ORDER BY added_at ASC"
+    ).fetchall()
+
+
+def set_playlist_watched(playlist_id: str, watched: bool) -> None:
+    """Set the watched flag for a playlist."""
+    conn = _get_conn()
+    conn.execute(
+        "UPDATE playlists SET watched = ? WHERE id = ?",
+        (int(watched), playlist_id),
+    )
+    conn.commit()
+
+
+def set_playlist_interval(playlist_id: str, interval_secs: Optional[int]) -> None:
+    """Set (or clear) the per-playlist check interval."""
+    conn = _get_conn()
+    conn.execute(
+        "UPDATE playlists SET check_interval_secs = ? WHERE id = ?",
+        (interval_secs, playlist_id),
+    )
+    conn.commit()
 
 
 # ---------------------------------------------------------------------------

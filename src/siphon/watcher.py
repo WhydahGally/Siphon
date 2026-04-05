@@ -1,22 +1,28 @@
 """
-siphon.watcher — Playlist watcher and CLI entry point.
+siphon.watcher — Playlist watcher, scheduler daemon, and CLI entry point.
 
-This module is the main entry point for Siphon. It manages the playlist
-registry, drives incremental sync via the parallel download engine, and
-exposes the `siphon` CLI (add / sync / sync-failed / list / delete / config).
+Architecture:
+    `siphon watch` starts a long-running FastAPI daemon on port 8000. All other
+    subcommands are thin HTTP clients that talk to the daemon. The daemon owns
+    the DB connection and the PlaylistScheduler.
 
-A future UI layer should import from this module to access the same
-business logic (add_playlist, sync, list) without going through the CLI.
+    The daemon is a prerequisite for all subcommands other than `watch` itself.
+    If the daemon is not running, commands exit with an error.
 
 Global configuration (stored in the DB settings table):
     mb-user-agent              MusicBrainz User-Agent string — set once via
                                `siphon config mb-user-agent "App/1.0 (you@example.com)"`.
-                               Used automatically by add and sync for rename lookups.
     max-concurrent-downloads   Number of simultaneous downloads (1–10, default 5).
+    check-interval             Default sync interval in seconds for all watched
+                               playlists (default: 86400). Per-playlist overrides
+                               take precedence.
+    log-level                  Logging verbosity: DEBUG, INFO, WARNING, ERROR.
 
 CLI usage:
+    siphon watch
     siphon config <key> [<value>]
-    siphon add <url> [--download] [--auto-rename] [--format mp3] [--output-dir ./downloads]
+    siphon add <url> [--download] [--no-watch] [--interval <secs>]
+               [--auto-rename] [--format mp3] [--output-dir ./downloads]
     siphon sync [<name>]
     siphon sync-failed [<name>]
     siphon list
@@ -26,11 +32,18 @@ import os
 import sys
 import argparse
 import logging
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+import requests as _requests
+import uvicorn
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
 from yt_dlp import YoutubeDL
 
 from siphon import registry
@@ -331,13 +344,278 @@ def download_parallel(
 # ---------------------------------------------------------------------------
 
 def cmd_add(args: argparse.Namespace) -> int:
-    url = args.url
-    if "list=" not in url and "/playlist" not in url:
-        logger.error("Only playlist URLs are supported by 'siphon add'. A playlist URL must contain 'list=' (e.g. ?list=PLxxx).")
+    body: dict = {
+        "url": args.url,
+        "format": args.format,
+        "quality": args.quality,
+        "output_dir": args.output_dir,
+        "auto_rename": args.rename,
+        "watched": not args.no_watch,
+        "download": args.download,
+    }
+    if args.interval is not None:
+        if args.interval <= 0:
+            logger.error("--interval must be a positive integer.")
+            return 1
+        body["check_interval_secs"] = args.interval
+
+    try:
+        resp = _requests.post(f"{_DAEMON_URL}/playlists", json=body, timeout=120)
+    except _requests.exceptions.ConnectionError:
+        print("siphon watch is not running. Start it with 'siphon watch'.", file=sys.stderr)
         return 1
 
+    if resp.status_code == 409:
+        logger.error("Playlist already registered. Use 'siphon sync' to fetch new items.")
+        return 1
+    if resp.status_code == 400:
+        try:
+            detail = resp.json().get("detail", resp.text)
+        except Exception:
+            detail = resp.text
+        logger.error("%s", detail)
+        return 1
+    if not resp.ok:
+        _daemon_handle_error(resp)
+        return 1
+
+    data = resp.json()
+    name = data.get("name", "?")
+    pid = data.get("id", "?")
+    watch_status = "" if body["watched"] else "  (auto-sync disabled)"
+    logger.info("Registered: %s  (ID: %s)%s", name, pid, watch_status)
+    if args.download:
+        logger.info("Download started in background.")
+    return 0
+
+
+# ===========================================================================
+# PlaylistScheduler
+# ===========================================================================
+
+_DEFAULT_INTERVAL = 86400  # 24 hours
+
+
+class PlaylistScheduler:
+    """
+    Manages one threading.Timer per watched playlist.
+
+    Lifecycle: fire → sync → rearm (sequential; no concurrent syncs per playlist).
+    Interval is re-read from the DB at each rearm, so config changes take effect
+    on the next cycle without any restart.
+
+    Thread-safety: all mutations to _timers and _active_threads are protected
+    by _lock.
+    """
+
+    def __init__(self) -> None:
+        self._timers: Dict[str, threading.Timer] = {}
+        self._active_threads: Dict[str, threading.Thread] = {}
+        self._lock = threading.Lock()
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    def start(self) -> None:
+        """Arm timers for all currently watched playlists."""
+        playlists = registry.get_watched_playlists()
+        for row in playlists:
+            self._arm(row["id"], self._resolve_interval(row))
+        logger.info("PlaylistScheduler started — %d playlist(s) scheduled.", len(playlists))
+
+    def stop(self) -> None:
+        """Cancel all pending timers and wait for any in-progress syncs to complete."""
+        with self._lock:
+            for timer in self._timers.values():
+                timer.cancel()
+            self._timers.clear()
+            threads_to_join = list(self._active_threads.values())
+
+        for t in threads_to_join:
+            t.join()
+        logger.info("PlaylistScheduler stopped.")
+
+    def add_playlist(self, playlist_id: str) -> None:
+        """Arm a new timer for a newly registered playlist (no-op if watched=0)."""
+        row = registry.get_playlist_by_id(playlist_id)
+        if row is None or not row["watched"]:
+            return
+        interval = self._resolve_interval(row)
+        self._arm(playlist_id, interval)
+        logger.info(
+            "PlaylistScheduler: watching '%s' — next sync in %s.",
+            row["name"], self._fmt_interval(interval),
+        )
+
+    def remove_playlist(self, playlist_id: str) -> None:
+        """Cancel the timer for a playlist being deleted (no-op if not present)."""
+        with self._lock:
+            timer = self._timers.pop(playlist_id, None)
+        if timer is not None:
+            timer.cancel()
+            logger.debug("PlaylistScheduler: cancelled timer for deleted playlist %s.", playlist_id)
+
+    def reschedule_playlist(self, playlist_id: str) -> None:
+        """
+        Cancel existing timer and re-arm with the current DB interval.
+        If watched=0, cancel only (no re-arm).
+        """
+        with self._lock:
+            old = self._timers.pop(playlist_id, None)
+        if old is not None:
+            old.cancel()
+
+        row = registry.get_playlist_by_id(playlist_id)
+        if row is None or not row["watched"]:
+            logger.debug("PlaylistScheduler: playlist %s is unwatched — timer cancelled.", playlist_id)
+            return
+
+        interval = self._resolve_interval(row)
+        self._arm(playlist_id, interval)
+        logger.info(
+            "PlaylistScheduler: '%s' rescheduled — next sync in %s.",
+            row["name"], self._fmt_interval(interval),
+        )
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _fmt_interval(seconds: int) -> str:
+        """Return a human-readable interval string (e.g. '24h', '90m', '45s')."""
+        if seconds >= 3600:
+            hours = seconds / 3600
+            return f"{hours:.4g}h"
+        if seconds >= 60:
+            minutes = seconds / 60
+            return f"{minutes:.4g}m"
+        return f"{seconds}s"
+
+    def _resolve_interval(self, row: Any) -> int:
+        """Return the effective check interval for a playlist row."""
+        if row["check_interval_secs"] is not None:
+            return int(row["check_interval_secs"])
+        global_val = registry.get_setting("check_interval")
+        if global_val is not None:
+            try:
+                return int(global_val)
+            except ValueError:
+                pass
+        return _DEFAULT_INTERVAL
+
+    def _arm(self, playlist_id: str, interval: int) -> None:
+        """Create and start a one-shot timer for playlist_id."""
+        timer = threading.Timer(interval, self._fire, args=(playlist_id,))
+        timer.daemon = True
+        timer.start()
+        with self._lock:
+            self._timers[playlist_id] = timer
+
+    def _fire(self, playlist_id: str) -> None:
+        """Called when a playlist's timer fires. Runs sync then rearms."""
+        row = registry.get_playlist_by_id(playlist_id)
+        if row is None:
+            logger.warning("PlaylistScheduler._fire: playlist %s not found in DB, skipping.", playlist_id)
+            return
+
+        # Track active thread so stop() can join it.
+        current = threading.current_thread()
+        with self._lock:
+            self._active_threads[playlist_id] = current
+
+        try:
+            logger.info("PlaylistScheduler: firing sync for '%s'.", row["name"])
+            _sync_parallel(
+                playlist_id=playlist_id,
+                playlist_name=row["name"],
+                url=row["url"],
+                fmt=row["format"],
+                quality=row["quality"] or "best",
+                output_dir=row["output_dir"] or _resolve_output_dir(_DEFAULT_OUTPUT_DIR),
+                mb_user_agent=registry.get_setting("mb_user_agent"),
+                max_workers=_get_max_workers(),
+                auto_rename=bool(row["auto_rename"]),
+            )
+        except Exception as exc:
+            logger.error("PlaylistScheduler: sync failed for '%s': %s", row["name"], exc)
+        finally:
+            with self._lock:
+                self._active_threads.pop(playlist_id, None)
+
+        self._rearm(playlist_id)
+
+    def _rearm(self, playlist_id: str) -> None:
+        """Re-read interval from DB and arm a new timer."""
+        row = registry.get_playlist_by_id(playlist_id)
+        if row is None or not row["watched"]:
+            return
+        interval = self._resolve_interval(row)
+        self._arm(playlist_id, interval)
+        logger.debug("PlaylistScheduler: rearmed '%s' — next sync in %ds.", row["name"], interval)
+
+
+# ===========================================================================
+# FastAPI daemon
+# ===========================================================================
+
+# Module-level scheduler instance — set by cmd_watch during daemon startup.
+_scheduler: Optional[PlaylistScheduler] = None
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    global _scheduler
     data_dir = _resolve_data_dir()
     registry.init_db(data_dir)
+    _scheduler = PlaylistScheduler()
+    _scheduler.start()
+    yield
+    if _scheduler is not None:
+        _scheduler.stop()
+
+
+app = FastAPI(title="Siphon", lifespan=_lifespan)
+
+_DAEMON_URL = "http://localhost:8000"
+
+
+# ------------------------------------------------------------------
+# Pydantic request/response models
+# ------------------------------------------------------------------
+
+class PlaylistCreate(BaseModel):
+    url: str
+    format: str = "mp3"
+    quality: str = "best"
+    output_dir: Optional[str] = None
+    auto_rename: bool = False
+    watched: bool = True
+    check_interval_secs: Optional[int] = None
+    download: bool = False
+
+
+class PlaylistPatch(BaseModel):
+    watched: Optional[bool] = None
+    check_interval_secs: Optional[int] = None
+
+
+class SettingWrite(BaseModel):
+    value: str
+
+
+# ------------------------------------------------------------------
+# /playlists endpoints
+# ------------------------------------------------------------------
+
+@app.post("/playlists", status_code=201)
+def api_add_playlist(body: PlaylistCreate):
+    url = body.url
+    if "list=" not in url and "/playlist" not in url:
+        raise HTTPException(status_code=400, detail="Only playlist URLs are supported. URL must contain 'list='.")
+
+    output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
 
     logger.info("Fetching playlist info from YouTube…")
     info = _fetch_playlist_info(url)
@@ -345,42 +623,285 @@ def cmd_add(args: argparse.Namespace) -> int:
     playlist_name = info.get("title") or info.get("playlist_title")
 
     if not playlist_id or not playlist_name:
-        logger.error("Could not retrieve playlist ID or title from YouTube.")
-        return 1
+        raise HTTPException(status_code=422, detail="Could not retrieve playlist ID or title from YouTube.")
 
     try:
         registry.add_playlist(
             playlist_id,
             playlist_name,
             url,
-            fmt=args.format,
-            quality=args.quality,
-            output_dir=_resolve_output_dir(args.output_dir),
-            auto_rename=args.rename,
+            fmt=body.format,
+            quality=body.quality,
+            output_dir=output_dir,
+            auto_rename=body.auto_rename,
+            watched=body.watched,
+            check_interval_secs=body.check_interval_secs,
         )
     except ValueError:
-        logger.error("Playlist already registered. Use 'siphon sync' to fetch new items.")
-        return 1
+        raise HTTPException(status_code=409, detail="Playlist already registered.")
 
-    logger.info("Registered: %s  (ID: %s)", playlist_name, playlist_id)
+    if _scheduler is not None:
+        _scheduler.add_playlist(playlist_id)
 
-    if args.download:
-        logger.info("Syncing '%s'…", playlist_name)
+    if body.download:
         mb_user_agent = registry.get_setting("mb_user_agent")
-        max_workers = _get_max_workers()
-        _sync_parallel(
-            playlist_id=playlist_id,
-            playlist_name=playlist_name,
-            url=url,
-            fmt=args.format,
-            quality=args.quality,
-            output_dir=_resolve_output_dir(args.output_dir),
-            mb_user_agent=mb_user_agent,
-            max_workers=max_workers,
-            auto_rename=args.rename,
+        t = threading.Thread(
+            target=_sync_parallel,
+            kwargs=dict(
+                playlist_id=playlist_id,
+                playlist_name=playlist_name,
+                url=url,
+                fmt=body.format,
+                quality=body.quality,
+                output_dir=output_dir,
+                mb_user_agent=mb_user_agent,
+                max_workers=_get_max_workers(),
+                auto_rename=body.auto_rename,
+            ),
+            daemon=True,
         )
+        t.start()
 
+    row = registry.get_playlist_by_id(playlist_id)
+    return _playlist_to_dict(row)
+
+
+@app.get("/playlists")
+def api_list_playlists():
+    return [_playlist_to_dict(p) for p in registry.list_playlists()]
+
+
+@app.get("/playlists/{playlist_id}")
+def api_get_playlist(playlist_id: str):
+    row = registry.get_playlist_by_id(playlist_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Playlist not found.")
+    return _playlist_to_dict(row)
+
+
+@app.delete("/playlists/{playlist_id}", status_code=204)
+def api_delete_playlist(playlist_id: str):
+    row = registry.get_playlist_by_id(playlist_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Playlist not found.")
+    if _scheduler is not None:
+        _scheduler.remove_playlist(playlist_id)
+    registry.delete_playlist(playlist_id)
+
+
+@app.patch("/playlists/{playlist_id}")
+def api_patch_playlist(playlist_id: str, body: PlaylistPatch):
+    row = registry.get_playlist_by_id(playlist_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Playlist not found.")
+    if body.watched is not None:
+        registry.set_playlist_watched(playlist_id, body.watched)
+    if body.check_interval_secs is not None:
+        registry.set_playlist_interval(playlist_id, body.check_interval_secs)
+    if _scheduler is not None:
+        _scheduler.reschedule_playlist(playlist_id)
+    return _playlist_to_dict(registry.get_playlist_by_id(playlist_id))
+
+
+@app.post("/playlists/{playlist_id}/sync", status_code=202)
+def api_sync_playlist(playlist_id: str):
+    row = registry.get_playlist_by_id(playlist_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Playlist not found.")
+    t = threading.Thread(
+        target=_sync_parallel,
+        kwargs=dict(
+            playlist_id=playlist_id,
+            playlist_name=row["name"],
+            url=row["url"],
+            fmt=row["format"],
+            quality=row["quality"] or "best",
+            output_dir=row["output_dir"] or _resolve_output_dir(_DEFAULT_OUTPUT_DIR),
+            mb_user_agent=registry.get_setting("mb_user_agent"),
+            max_workers=_get_max_workers(),
+            auto_rename=bool(row["auto_rename"]),
+        ),
+        daemon=True,
+    )
+    t.start()
+    return {"status": "sync started", "playlist_id": playlist_id}
+
+
+@app.post("/playlists/{playlist_id}/sync-failed", status_code=202)
+def api_sync_failed_playlist(playlist_id: str):
+    row = registry.get_playlist_by_id(playlist_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Playlist not found.")
+    t = threading.Thread(
+        target=_run_sync_failed_for_playlist,
+        args=(row,),
+        daemon=True,
+    )
+    t.start()
+    return {"status": "sync-failed started", "playlist_id": playlist_id}
+
+
+# ------------------------------------------------------------------
+# /settings endpoints
+# ------------------------------------------------------------------
+
+@app.get("/settings")
+def api_get_settings():
+    conn = registry._get_conn()
+    rows = conn.execute("SELECT key, value FROM settings ORDER BY key ASC").fetchall()
+    return {r["key"]: r["value"] for r in rows}
+
+
+@app.get("/settings/{key}")
+def api_get_setting(key: str):
+    value = registry.get_setting(key)
+    return {"key": key, "value": value}
+
+
+@app.put("/settings/{key}")
+def api_put_setting(key: str, body: SettingWrite):
+    # Normalise key (CLI uses hyphens, DB uses underscores for legacy keys)
+    if key not in _KNOWN_KEYS and key.replace("-", "_") not in _KNOWN_KEYS:
+        raise HTTPException(status_code=400, detail=f"Unknown key '{key}'. Known keys: {', '.join(_KNOWN_KEYS)}.")
+    db_key = _KNOWN_KEYS.get(key, (key.replace("-", "_"), ""))[0]
+    registry.set_setting(db_key, body.value)
+    return {"key": key, "value": body.value}
+
+
+# ------------------------------------------------------------------
+# /health endpoint
+# ------------------------------------------------------------------
+
+@app.get("/health")
+def api_health():
+    watched = len(registry.get_watched_playlists())
+    return {"status": "ok", "watched_playlists": watched}
+
+
+# ------------------------------------------------------------------
+# Internal helpers for API handlers
+# ------------------------------------------------------------------
+
+def _playlist_to_dict(row) -> dict:
+    if row is None:
+        return {}
+    d = dict(row)
+    d["item_count"] = registry.count_items(row["id"])
+    return d
+
+
+def _run_sync_failed_for_playlist(row) -> None:
+    """Run sync-failed logic for a single playlist row (called in a thread)."""
+    pid = row["id"]
+    pname = row["name"]
+    failures = registry.get_failed(pid)
+    if not failures:
+        logger.info("No failures recorded for '%s'.", pname)
+        return
+    entries = [{"id": f["video_id"], "url": f["url"], "title": f["yt_title"]} for f in failures]
+    options = _build_options(row["format"], row["quality"] or "best")
+    output_dir = row["output_dir"] or _resolve_output_dir(_DEFAULT_OUTPUT_DIR)
+    successes, new_failures = download_parallel(
+        entries=entries,
+        playlist_id=pid,
+        playlist_name=pname,
+        options=options,
+        output_dir=output_dir,
+        mb_user_agent=registry.get_setting("mb_user_agent"),
+        max_workers=_get_max_workers(),
+        auto_rename=bool(row["auto_rename"]),
+    )
+    logger.info("'%s': %d recovered, %d still failing.", pname, len(successes), len(new_failures))
+
+
+# ===========================================================================
+# siphon watch — daemon entry point
+# ===========================================================================
+
+def cmd_watch(_args: argparse.Namespace) -> int:
+    data_dir = _resolve_data_dir()
+    registry.init_db(data_dir)
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        log_level="warning",
+    )
     return 0
+
+
+# ===========================================================================
+# CLI daemon client helper
+# ===========================================================================
+
+def _daemon_get(path: str) -> Any:
+    """GET from the daemon. Exits with error if daemon is not reachable."""
+    try:
+        resp = _requests.get(f"{_DAEMON_URL}{path}", timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except _requests.exceptions.ConnectionError:
+        print("siphon watch is not running. Start it with 'siphon watch'.", file=sys.stderr)
+        sys.exit(1)
+
+
+def _daemon_post(path: str, json: Optional[dict] = None, *, expect_status: int = 200) -> Any:
+    """POST to the daemon. Returns parsed JSON or None for 204."""
+    try:
+        resp = _requests.post(f"{_DAEMON_URL}{path}", json=json or {}, timeout=60)
+        if resp.status_code == expect_status:
+            return resp.json() if resp.content else None
+        _daemon_handle_error(resp)
+        return None
+    except _requests.exceptions.ConnectionError:
+        print("siphon watch is not running. Start it with 'siphon watch'.", file=sys.stderr)
+        sys.exit(1)
+
+
+def _daemon_delete(path: str) -> None:
+    """DELETE on the daemon."""
+    try:
+        resp = _requests.delete(f"{_DAEMON_URL}{path}", timeout=10)
+        if resp.status_code not in (200, 204):
+            _daemon_handle_error(resp)
+    except _requests.exceptions.ConnectionError:
+        print("siphon watch is not running. Start it with 'siphon watch'.", file=sys.stderr)
+        sys.exit(1)
+
+
+def _daemon_patch(path: str, json: dict) -> Any:
+    """PATCH on the daemon."""
+    try:
+        resp = _requests.patch(f"{_DAEMON_URL}{path}", json=json, timeout=10)
+        resp.raise_for_status()
+        return resp.json()
+    except _requests.exceptions.ConnectionError:
+        print("siphon watch is not running. Start it with 'siphon watch'.", file=sys.stderr)
+        sys.exit(1)
+
+
+def _daemon_put(path: str, json: dict) -> Any:
+    """PUT on the daemon."""
+    try:
+        resp = _requests.put(f"{_DAEMON_URL}{path}", json=json, timeout=10)
+        if resp.status_code == 400:
+            data = resp.json()
+            print(f"Error: {data.get('detail', resp.text)}", file=sys.stderr)
+            sys.exit(1)
+        resp.raise_for_status()
+        return resp.json()
+    except _requests.exceptions.ConnectionError:
+        print("siphon watch is not running. Start it with 'siphon watch'.", file=sys.stderr)
+        sys.exit(1)
+
+
+def _daemon_handle_error(resp) -> None:
+    try:
+        detail = resp.json().get("detail", resp.text)
+    except Exception:
+        detail = resp.text
+    print(f"Error: {detail}", file=sys.stderr)
+    sys.exit(1)
 
 
 # ---------------------------------------------------------------------------
@@ -452,53 +973,23 @@ def _sync_parallel(
 
 
 def cmd_sync(args: argparse.Namespace) -> int:
-    data_dir = _resolve_data_dir()
-    registry.init_db(data_dir)
-
-    playlists = registry.list_playlists()
-    if not playlists:
-        logger.info("No playlists registered. Use 'siphon add <url>' to add one.")
-        return 0
-
     name_filter = getattr(args, "name", None)
-    max_workers = _get_max_workers()
-
     if name_filter:
-        row = registry.get_playlist_by_name(name_filter)
-        if row is None:
+        playlists = _daemon_get("/playlists")
+        match = next((p for p in playlists if p["name"] == name_filter), None)
+        if match is None:
             logger.error("No playlist named '%s'. Run 'siphon list' to see registered playlists.", name_filter)
             return 1
-        targets = [row]
+        _daemon_post(f"/playlists/{match['id']}/sync", expect_status=202)
+        logger.info("Sync started for '%s'.", name_filter)
     else:
-        targets = playlists
-
-    mb_user_agent = registry.get_setting("mb_user_agent")
-
-    for row in targets:
-        pid = row["id"]
-        pname = row["name"]
-        url = row["url"]
-        fmt = row["format"]
-        quality = row["quality"] or "best"
-        output_dir = row["output_dir"] or _resolve_output_dir(_DEFAULT_OUTPUT_DIR)
-        auto_rename = bool(row["auto_rename"])
-        logger.info("Syncing '%s'…", pname)
-        try:
-            _sync_parallel(
-                playlist_id=pid,
-                playlist_name=pname,
-                url=url,
-                fmt=fmt,
-                quality=quality,
-                output_dir=output_dir,
-                mb_user_agent=mb_user_agent,
-                max_workers=max_workers,
-                auto_rename=auto_rename,
-            )
-        except Exception as exc:
-            logger.warning("Sync failed for '%s': %s", pname, exc)
-            registry.update_last_synced(pid)
-
+        playlists = _daemon_get("/playlists")
+        if not playlists:
+            logger.info("No playlists registered. Use 'siphon add <url>' to add one.")
+            return 0
+        for p in playlists:
+            _daemon_post(f"/playlists/{p['id']}/sync", expect_status=202)
+            logger.info("Sync started for '%s'.", p["name"])
     return 0
 
 
@@ -507,26 +998,22 @@ def cmd_sync(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_list(args: argparse.Namespace) -> int:
-    data_dir = _resolve_data_dir()
-    registry.init_db(data_dir)
-
-    playlists = registry.list_playlists()
+    playlists = _daemon_get("/playlists")
     if not playlists:
         logger.info("No playlists registered.")
         return 0
 
     rows = []
     for p in playlists:
-        count = registry.count_items(p["id"])
-        last_synced = p["last_synced_at"] or "never"
-        # Trim ISO timestamp to readable form
+        count = p.get("item_count", 0)
+        last_synced = p.get("last_synced_at") or "never"
         if last_synced != "never" and "T" in last_synced:
             last_synced = last_synced.replace("T", " ")[:19] + " UTC"
         rows.append((p["name"], p["url"], count, last_synced))
 
     name_w = max(len("NAME"), max(len(r[0]) for r in rows))
     url_w = max(len("URL"), max(len(r[1]) for r in rows))
-    url_w = min(url_w, 60)  # cap URL column width
+    url_w = min(url_w, 60)
     items_w = max(len("ITEMS"), max(len(str(r[2])) for r in rows))
     sync_w = max(len("LAST SYNCED"), max(len(r[3]) for r in rows))
 
@@ -543,18 +1030,14 @@ def cmd_list(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_delete(args: argparse.Namespace) -> int:
-    data_dir = _resolve_data_dir()
-    registry.init_db(data_dir)
-
-    name = args.name
-    row = registry.get_playlist_by_name(name)
-    if row is None:
-        logger.error("No playlist named '%s'. Run 'siphon list' to see registered playlists.", name)
+    playlists = _daemon_get("/playlists")
+    match = next((p for p in playlists if p["name"] == args.name), None)
+    if match is None:
+        logger.error("No playlist named '%s'. Run 'siphon list' to see registered playlists.", args.name)
         return 1
 
-    pid = row["id"]
-    count = registry.count_items(pid)
-    print(f"Playlist:  {name}")
+    count = match.get("item_count", 0)
+    print(f"Playlist:  {args.name}")
     print(f"Items:     {count}")
     print()
     print("This will remove the playlist and all its records from the registry.")
@@ -565,8 +1048,8 @@ def cmd_delete(args: argparse.Namespace) -> int:
         print("Cancelled. No changes made.")
         return 0
 
-    registry.delete_playlist(pid)
-    print(f"Deleted playlist '{name}' from registry.")
+    _daemon_delete(f"/playlists/{match['id']}")
+    print(f"Deleted playlist '{args.name}' from registry.")
     return 0
 
 
@@ -575,61 +1058,23 @@ def cmd_delete(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def cmd_sync_failed(args: argparse.Namespace) -> int:
-    data_dir = _resolve_data_dir()
-    registry.init_db(data_dir)
-
     name_filter = getattr(args, "name", None)
-    max_workers = _get_max_workers()
-    mb_user_agent = registry.get_setting("mb_user_agent")
+    playlists = _daemon_get("/playlists")
 
     if name_filter:
-        row = registry.get_playlist_by_name(name_filter)
-        if row is None:
+        match = next((p for p in playlists if p["name"] == name_filter), None)
+        if match is None:
             logger.error("No playlist named '%s'. Run 'siphon list' to see registered playlists.", name_filter)
             return 1
-        targets = [row]
+        _daemon_post(f"/playlists/{match['id']}/sync-failed", expect_status=202)
+        logger.info("Sync-failed started for '%s'.", name_filter)
     else:
-        targets = registry.list_playlists()
-
-    any_failures = False
-    for row in targets:
-        pid = row["id"]
-        pname = row["name"]
-        failures = registry.get_failed(pid)
-        if not failures:
-            continue
-        any_failures = True
-        entries = [
-            {"id": f["video_id"], "url": f["url"], "title": f["yt_title"]}
-            for f in failures
-        ]
-        logger.info("Retrying %d failure(s) for '%s':", len(entries), pname)
-        for idx, entry in enumerate(entries, 1):
-            logger.info("  %d. %s", idx, entry["title"])
-        options = _build_options(row["format"], row["quality"] or "best")
-        output_dir = row["output_dir"] or _resolve_output_dir(_DEFAULT_OUTPUT_DIR)
-        auto_rename = bool(row["auto_rename"])
-
-        successes, new_failures = download_parallel(
-            entries=entries,
-            playlist_id=pid,
-            playlist_name=pname,
-            options=options,
-            output_dir=output_dir,
-            mb_user_agent=mb_user_agent,
-            max_workers=max_workers,
-            auto_rename=auto_rename,
-        )
-        logger.info("'%s': %d recovered, %d still failing.", pname, len(successes), len(new_failures))
-        if new_failures:
-            for f in new_failures:
-                logger.info("  \u2717 %s: %s", f.title, f.error_message)
-
-    if name_filter and not any_failures:
-        logger.info("No failures recorded for '%s'.", name_filter)
-    elif not any_failures:
-        logger.info("No failures recorded.")
-
+        if not playlists:
+            logger.info("No failures recorded.")
+            return 0
+        for p in playlists:
+            _daemon_post(f"/playlists/{p['id']}/sync-failed", expect_status=202)
+        logger.info("Sync-failed started for all playlists.")
     return 0
 
 
@@ -652,33 +1097,36 @@ _KNOWN_KEYS = {
         "max_concurrent_downloads",
         f"Maximum simultaneous downloads (1\u201310). Default: {_DEFAULT_MAX_WORKERS}.",
     ),
+    "check-interval": (
+        "check_interval",
+        "Default sync interval in seconds for all watched playlists (e.g. 3600 = hourly, "
+        "86400 = daily). Per-playlist overrides take precedence. Default: 86400.",
+    ),
 }
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
 
 
 def cmd_config(args: argparse.Namespace) -> int:
-    data_dir = _resolve_data_dir()
-    registry.init_db(data_dir)
-
     key_arg = args.key
     if key_arg not in _KNOWN_KEYS:
         known = ", ".join(_KNOWN_KEYS)
         logger.error("Unknown config key '%s'. Known keys: %s", key_arg, known)
         return 1
 
-    db_key, description = _KNOWN_KEYS[key_arg]
+    db_key, _description = _KNOWN_KEYS[key_arg]
 
     if args.value is None:
-        # Read mode
-        val = registry.get_setting(db_key)
+        # Read mode — query daemon
+        data = _daemon_get(f"/settings/{db_key}")
+        val = data.get("value")
         if val is None:
             print(f"{key_arg}: (not set)")
         else:
             print(f"{key_arg}: {val}")
         return 0
 
-    # Write mode — validate log-level and max-concurrent-downloads before persisting.
+    # Write mode — validate before sending to daemon
     if key_arg == "log-level" and args.value.upper() not in _VALID_LOG_LEVELS:
         logger.error(
             "Invalid log-level '%s'. Valid values: %s",
@@ -694,9 +1142,53 @@ def cmd_config(args: argparse.Namespace) -> int:
         if not (1 <= int_val <= _MAX_WORKERS_CEILING):
             logger.error("max-concurrent-downloads must be between 1 and %d.", _MAX_WORKERS_CEILING)
             return 1
+    if key_arg == "check-interval":
+        try:
+            int_val = int(args.value)
+        except ValueError:
+            logger.error("check-interval must be a positive integer (seconds), got '%s'.", args.value)
+            return 1
+        if int_val <= 0:
+            logger.error("check-interval must be a positive integer.")
+            return 1
+
     value = args.value.upper() if key_arg == "log-level" else args.value
-    registry.set_setting(db_key, value)
+    _daemon_put(f"/settings/{db_key}", {"value": value})
     print(f"Set {key_arg}.")
+    return 0
+
+
+def cmd_config_playlist(args: argparse.Namespace) -> int:
+    # Look up playlist by name
+    data = _daemon_get("/playlists")
+    playlists = data.get("playlists", [])
+    match = next((p for p in playlists if p["name"] == args.name), None)
+    if match is None:
+        logger.error("Playlist '%s' not found.", args.name)
+        return 1
+
+    pid = match["id"]
+    patch: dict = {}
+
+    if args.interval is not None:
+        if args.interval <= 0:
+            logger.error("--interval must be a positive integer (seconds).")
+            return 1
+        patch["check_interval_secs"] = args.interval
+
+    if args.watched is not None:
+        patch["watched"] = args.watched
+
+    if not patch:
+        # Read-only: show current playlist settings
+        print(f"name:     {match['name']}")
+        print(f"watched:  {match.get('watched', True)}")
+        interval = match.get("check_interval_secs")
+        print(f"interval: {interval if interval is not None else '(global default)'}")
+        return 0
+
+    _daemon_patch(f"/playlists/{pid}", patch)
+    print(f"Updated '{args.name}'.")
     return 0
 
 
@@ -711,8 +1203,7 @@ def main() -> None:
         stream=sys.stderr,
     )
 
-    # Apply log-level from DB if already set; fall back to INFO on a fresh install
-    # or before the DB has been initialised by the actual command.
+    # Apply log-level from DB if already set; fall back to INFO on a fresh install.
     try:
         stored_level = registry.get_setting("log_level") or "INFO"
     except RuntimeError:
@@ -726,14 +1217,23 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", metavar="<command>")
     sub.required = True
 
+    # -- watch --
+    sub.add_parser("watch", help="Start the Siphon daemon (required for all other commands).")
+
     # -- add --
     p_add = sub.add_parser("add", help="Register a YouTube playlist.")
     p_add.add_argument("url", help="YouTube playlist URL.")
     p_add.add_argument("--download", action="store_true", help="Download all items immediately after registering.")
+    p_add.add_argument("--no-watch", dest="no_watch", action="store_true", default=False,
+                       help="Register playlist without adding it to the automatic sync schedule.")
+    p_add.add_argument("--interval", type=int, default=None, metavar="SECS",
+                       help="Per-playlist sync interval in seconds (overrides global check-interval).")
     p_add.add_argument("--format", default="mp3", choices=_ALL_FORMATS, help="Output format (default: mp3).")
-    p_add.add_argument("--quality", default="best", choices=sorted(VALID_RESOLUTIONS), help="Video quality: best, 2160, 1080, 720, 480, 360 (default: best). Only applies to video formats.")
+    p_add.add_argument("--quality", default="best", choices=sorted(VALID_RESOLUTIONS),
+                       help="Video quality: best, 2160, 1080, 720, 480, 360 (default: best).")
     p_add.add_argument("--output-dir", default=_DEFAULT_OUTPUT_DIR, help="Root directory for downloads.")
-    p_add.add_argument("--auto-rename", dest="rename", action="store_true", default=False, help="Enable auto-rename for this playlist: renames files to 'Artist - Track' using the rename chain (default: disabled).")
+    p_add.add_argument("--auto-rename", dest="rename", action="store_true", default=False,
+                       help="Enable auto-rename for this playlist.")
 
     # -- sync --
     p_sync = sub.add_parser("sync", help="Download new items for registered playlists.")
@@ -755,15 +1255,29 @@ def main() -> None:
     p_cfg.add_argument("key", choices=list(_KNOWN_KEYS), help="Config key to read or write.")
     p_cfg.add_argument("value", nargs="?", default=None, help="Value to set. Omit to read the current value.")
 
+    # -- config-playlist --
+    p_cfgp = sub.add_parser("config-playlist", help="Configure per-playlist settings.")
+    p_cfgp.add_argument("name", help="Playlist name to configure.")
+    p_cfgp.add_argument("--interval", type=int, default=None, metavar="SECS",
+                        help="Sync interval in seconds for this playlist. Overrides the global check-interval.")
+    watch_grp = p_cfgp.add_mutually_exclusive_group()
+    watch_grp.add_argument("--watch", dest="watched", action="store_const", const=True,
+                           help="Enable automatic syncing for this playlist.")
+    watch_grp.add_argument("--no-watch", dest="watched", action="store_const", const=False,
+                           help="Disable automatic syncing for this playlist.")
+    p_cfgp.set_defaults(watched=None)
+
     args = parser.parse_args()
 
     dispatch = {
+        "watch": cmd_watch,
         "add": cmd_add,
         "sync": cmd_sync,
         "sync-failed": cmd_sync_failed,
         "list": cmd_list,
         "delete": cmd_delete,
         "config": cmd_config,
+        "config-playlist": cmd_config_playlist,
     }
     sys.exit(dispatch[args.command](args))
 
