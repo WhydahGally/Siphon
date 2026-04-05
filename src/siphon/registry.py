@@ -260,6 +260,16 @@ def set_playlist_interval(playlist_id: str, interval_secs: Optional[int]) -> Non
     conn.commit()
 
 
+def set_playlist_auto_rename(playlist_id: str, auto_rename: bool) -> None:
+    """Enable or disable auto-rename for a playlist."""
+    conn = _get_conn()
+    conn.execute(
+        "UPDATE playlists SET auto_rename = ? WHERE id = ?",
+        (int(auto_rename), playlist_id),
+    )
+    conn.commit()
+
+
 # ---------------------------------------------------------------------------
 # Item persistence
 # ---------------------------------------------------------------------------

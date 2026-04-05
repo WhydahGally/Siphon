@@ -13,7 +13,7 @@ Global configuration (stored in the DB settings table):
     mb-user-agent              MusicBrainz User-Agent string — set once via
                                `siphon config mb-user-agent "App/1.0 (you@example.com)"`.
     max-concurrent-downloads   Number of simultaneous downloads (1–10, default 5).
-    check-interval             Default sync interval in seconds for all watched
+    interval                   Default sync interval in seconds for all watched
                                playlists (default: 86400). Per-playlist overrides
                                take precedence.
     log-level                  Logging verbosity: DEBUG, INFO, WARNING, ERROR.
@@ -27,6 +27,7 @@ CLI usage:
     siphon sync-failed [<name>]
     siphon list
     siphon delete <name>
+    siphon config-playlist <name> [<key> [<value>]]
 """
 import os
 import sys
@@ -81,6 +82,15 @@ class FailureRecord:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _parse_bool(value: str) -> bool:
+    """Argparse type for accepting true/false/1/0 as a boolean."""
+    if value.lower() in ("true", "1", "yes"):
+        return True
+    if value.lower() in ("false", "0", "no"):
+        return False
+    raise argparse.ArgumentTypeError(f"Expected true/false, got '{value}'.")
+
 
 def _resolve_data_dir() -> str:
     return os.path.abspath(_DATA_DIR)
@@ -349,7 +359,7 @@ def cmd_add(args: argparse.Namespace) -> int:
         "format": args.format,
         "quality": args.quality,
         "output_dir": args.output_dir,
-        "auto_rename": args.rename,
+        "auto_rename": args.auto_rename,
         "watched": not args.no_watch,
         "download": args.download,
     }
@@ -599,6 +609,7 @@ class PlaylistCreate(BaseModel):
 class PlaylistPatch(BaseModel):
     watched: Optional[bool] = None
     check_interval_secs: Optional[int] = None
+    auto_rename: Optional[bool] = None
 
 
 class SettingWrite(BaseModel):
@@ -698,6 +709,8 @@ def api_patch_playlist(playlist_id: str, body: PlaylistPatch):
         registry.set_playlist_watched(playlist_id, body.watched)
     if body.check_interval_secs is not None:
         registry.set_playlist_interval(playlist_id, body.check_interval_secs)
+    if body.auto_rename is not None:
+        registry.set_playlist_auto_rename(playlist_id, body.auto_rename)
     if _scheduler is not None:
         _scheduler.reschedule_playlist(playlist_id)
     return _playlist_to_dict(registry.get_playlist_by_id(playlist_id))
@@ -1097,7 +1110,7 @@ _KNOWN_KEYS = {
         "max_concurrent_downloads",
         f"Maximum simultaneous downloads (1\u201310). Default: {_DEFAULT_MAX_WORKERS}.",
     ),
-    "check-interval": (
+    "interval": (
         "check_interval",
         "Default sync interval in seconds for all watched playlists (e.g. 3600 = hourly, "
         "86400 = daily). Per-playlist overrides take precedence. Default: 86400.",
@@ -1105,6 +1118,8 @@ _KNOWN_KEYS = {
 }
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
+
+_PLAYLIST_KNOWN_KEYS = {"interval", "auto-rename", "watched"}
 
 
 def cmd_config(args: argparse.Namespace) -> int:
@@ -1142,14 +1157,14 @@ def cmd_config(args: argparse.Namespace) -> int:
         if not (1 <= int_val <= _MAX_WORKERS_CEILING):
             logger.error("max-concurrent-downloads must be between 1 and %d.", _MAX_WORKERS_CEILING)
             return 1
-    if key_arg == "check-interval":
+    if key_arg == "interval":
         try:
             int_val = int(args.value)
         except ValueError:
-            logger.error("check-interval must be a positive integer (seconds), got '%s'.", args.value)
+            logger.error("interval must be a positive integer (seconds), got '%s'.", args.value)
             return 1
         if int_val <= 0:
-            logger.error("check-interval must be a positive integer.")
+            logger.error("interval must be a positive integer.")
             return 1
 
     value = args.value.upper() if key_arg == "log-level" else args.value
@@ -1159,36 +1174,63 @@ def cmd_config(args: argparse.Namespace) -> int:
 
 
 def cmd_config_playlist(args: argparse.Namespace) -> int:
-    # Look up playlist by name
-    data = _daemon_get("/playlists")
-    playlists = data.get("playlists", [])
+    playlists = _daemon_get("/playlists")
     match = next((p for p in playlists if p["name"] == args.name), None)
     if match is None:
         logger.error("Playlist '%s' not found.", args.name)
         return 1
 
     pid = match["id"]
-    patch: dict = {}
 
-    if args.interval is not None:
-        if args.interval <= 0:
-            logger.error("--interval must be a positive integer (seconds).")
-            return 1
-        patch["check_interval_secs"] = args.interval
-
-    if args.watched is not None:
-        patch["watched"] = args.watched
-
-    if not patch:
-        # Read-only: show current playlist settings
-        print(f"name:     {match['name']}")
-        print(f"watched:  {match.get('watched', True)}")
+    if args.key is None:
+        # Read-only: show all settings
+        print(f"name:        {match['name']}")
+        print(f"watched:     {bool(match.get('watched', True))}")
         interval = match.get("check_interval_secs")
-        print(f"interval: {interval if interval is not None else '(global default)'}")
+        print(f"interval:    {interval if interval is not None else '(global default)'}")
+        print(f"auto-rename: {bool(match.get('auto_rename', False))}")
         return 0
 
+    if args.key not in _PLAYLIST_KNOWN_KEYS:
+        logger.error("Unknown key '%s'. Known keys: %s", args.key, ", ".join(sorted(_PLAYLIST_KNOWN_KEYS)))
+        return 1
+
+    if args.value is None:
+        # Read mode for a specific key
+        if args.key == "interval":
+            val = match.get("check_interval_secs")
+            print(f"interval: {val if val is not None else '(global default)'}")
+        elif args.key == "auto-rename":
+            print(f"auto-rename: {bool(match.get('auto_rename', False))}")
+        elif args.key == "watched":
+            print(f"watched: {bool(match.get('watched', True))}")
+        return 0
+
+    # Write mode
+    patch: dict = {}
+    if args.key == "interval":
+        try:
+            val = int(args.value)
+        except ValueError:
+            logger.error("interval must be a positive integer (seconds), got '%s'.", args.value)
+            return 1
+        if val <= 0:
+            logger.error("interval must be a positive integer.")
+            return 1
+        patch["check_interval_secs"] = val
+    else:
+        try:
+            bool_val = _parse_bool(args.value)
+        except argparse.ArgumentTypeError as exc:
+            logger.error("%s", exc)
+            return 1
+        if args.key == "auto-rename":
+            patch["auto_rename"] = bool_val
+        else:
+            patch["watched"] = bool_val
+
     _daemon_patch(f"/playlists/{pid}", patch)
-    print(f"Updated '{args.name}'.")
+    print(f"Set {args.key} for '{args.name}'.")
     return 0
 
 
@@ -1227,12 +1269,12 @@ def main() -> None:
     p_add.add_argument("--no-watch", dest="no_watch", action="store_true", default=False,
                        help="Register playlist without adding it to the automatic sync schedule.")
     p_add.add_argument("--interval", type=int, default=None, metavar="SECS",
-                       help="Per-playlist sync interval in seconds (overrides global check-interval).")
+                       help="Per-playlist sync interval in seconds (overrides global interval).")
     p_add.add_argument("--format", default="mp3", choices=_ALL_FORMATS, help="Output format (default: mp3).")
     p_add.add_argument("--quality", default="best", choices=sorted(VALID_RESOLUTIONS),
                        help="Video quality: best, 2160, 1080, 720, 480, 360 (default: best).")
     p_add.add_argument("--output-dir", default=_DEFAULT_OUTPUT_DIR, help="Root directory for downloads.")
-    p_add.add_argument("--auto-rename", dest="rename", action="store_true", default=False,
+    p_add.add_argument("--auto-rename", dest="auto_rename", action="store_true", default=False,
                        help="Enable auto-rename for this playlist.")
 
     # -- sync --
@@ -1256,16 +1298,11 @@ def main() -> None:
     p_cfg.add_argument("value", nargs="?", default=None, help="Value to set. Omit to read the current value.")
 
     # -- config-playlist --
-    p_cfgp = sub.add_parser("config-playlist", help="Configure per-playlist settings.")
+    p_cfgp = sub.add_parser("config-playlist", help="Get or set a per-playlist configuration value.")
     p_cfgp.add_argument("name", help="Playlist name to configure.")
-    p_cfgp.add_argument("--interval", type=int, default=None, metavar="SECS",
-                        help="Sync interval in seconds for this playlist. Overrides the global check-interval.")
-    watch_grp = p_cfgp.add_mutually_exclusive_group()
-    watch_grp.add_argument("--watch", dest="watched", action="store_const", const=True,
-                           help="Enable automatic syncing for this playlist.")
-    watch_grp.add_argument("--no-watch", dest="watched", action="store_const", const=False,
-                           help="Disable automatic syncing for this playlist.")
-    p_cfgp.set_defaults(watched=None)
+    p_cfgp.add_argument("key", nargs="?", default=None, metavar="key",
+                        help="Setting to read or write: interval, auto-rename, watched. Omit to show all.")
+    p_cfgp.add_argument("value", nargs="?", default=None, help="Value to set. Omit to read the current value.")
 
     args = parser.parse_args()
 
