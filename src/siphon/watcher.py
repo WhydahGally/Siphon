@@ -773,10 +773,9 @@ def api_get_setting(key: str):
 
 @app.put("/settings/{key}")
 def api_put_setting(key: str, body: SettingWrite):
-    # Normalise key (CLI uses hyphens, DB uses underscores for legacy keys)
-    if key not in _KNOWN_KEYS and key.replace("-", "_") not in _KNOWN_KEYS:
+    if key not in _KNOWN_KEYS:
         raise HTTPException(status_code=400, detail=f"Unknown key '{key}'. Known keys: {', '.join(_KNOWN_KEYS)}.")
-    db_key = _KNOWN_KEYS.get(key, (key.replace("-", "_"), ""))[0]
+    db_key = _KNOWN_KEYS[key][0]
     registry.set_setting(db_key, body.value)
     return {"key": key, "value": body.value}
 
@@ -1133,7 +1132,7 @@ def cmd_config(args: argparse.Namespace) -> int:
 
     if args.value is None:
         # Read mode — query daemon
-        data = _daemon_get(f"/settings/{db_key}")
+        data = _daemon_get(f"/settings/{key_arg}")
         val = data.get("value")
         if val is None:
             print(f"{key_arg}: (not set)")
@@ -1168,7 +1167,7 @@ def cmd_config(args: argparse.Namespace) -> int:
             return 1
 
     value = args.value.upper() if key_arg == "log-level" else args.value
-    _daemon_put(f"/settings/{db_key}", {"value": value})
+    _daemon_put(f"/settings/{key_arg}", {"value": value})
     print(f"Set {key_arg}.")
     return 0
 
@@ -1187,7 +1186,7 @@ def cmd_config_playlist(args: argparse.Namespace) -> int:
         print(f"name:        {match['name']}")
         print(f"watched:     {bool(match.get('watched', True))}")
         interval = match.get("check_interval_secs")
-        print(f"interval:    {interval if interval is not None else '(global default)'}")
+        print(f"interval:    {interval if interval is not None else f'{_DEFAULT_INTERVAL} (global default)'}")
         print(f"auto-rename: {bool(match.get('auto_rename', False))}")
         return 0
 
@@ -1199,7 +1198,7 @@ def cmd_config_playlist(args: argparse.Namespace) -> int:
         # Read mode for a specific key
         if args.key == "interval":
             val = match.get("check_interval_secs")
-            print(f"interval: {val if val is not None else '(global default)'}")
+            print(f"interval: {val if val is not None else f'{_DEFAULT_INTERVAL} (global default)'}")
         elif args.key == "auto-rename":
             print(f"auto-rename: {bool(match.get('auto_rename', False))}")
         elif args.key == "watched":

@@ -74,6 +74,12 @@ The daemon SHALL expose the following REST endpoints for playlist management:
 - **THEN** the daemon SHALL update the DB record and reschedule the playlist's timer
   in the `PlaylistScheduler` with the new interval, returning HTTP 200
 
+#### Scenario: PATCH /playlists/{playlist_id} — update watched or auto_rename
+- **WHEN** `PATCH /playlists/{playlist_id}` is called with `watched` (bool) and/or
+  `auto_rename` (bool)
+- **THEN** the daemon SHALL update the respective DB columns and reschedule the
+  scheduler timer (cancel-only if `watched=false`), returning HTTP 200
+
 #### Scenario: POST /playlists/{playlist_id}/sync — triggers sync
 - **WHEN** `POST /playlists/{playlist_id}/sync` is called
 - **THEN** the daemon SHALL trigger `_sync_parallel` for that playlist in a
@@ -89,7 +95,7 @@ The daemon SHALL expose endpoints for reading and writing global settings:
 - `PUT /settings/{key}` — write a setting value
 
 #### Scenario: PUT /settings/{key} — known key
-- **WHEN** `PUT /settings/check-interval` is called with a valid integer value
+- **WHEN** `PUT /settings/interval` is called with a valid integer value
 - **THEN** the daemon SHALL persist the value in the DB settings table and return
   HTTP 200
 
@@ -98,8 +104,8 @@ The daemon SHALL expose endpoints for reading and writing global settings:
 - **THEN** the daemon SHALL return HTTP 400 with a message listing valid keys
 
 #### Scenario: GET /settings/{key} — not set
-- **WHEN** `GET /settings/check-interval` is called and no value is stored
-- **THEN** the daemon SHALL return HTTP 200 with `{"key": "check-interval", "value": null}`
+- **WHEN** `GET /settings/interval` is called and no value is stored
+- **THEN** the daemon SHALL return HTTP 200 with `{"key": "interval", "value": null}`
 
 ---
 

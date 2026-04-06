@@ -90,8 +90,8 @@ functions. The CLI layer becomes a thin presentation wrapper.
 - **THEN** the CLI SHALL POST to the appropriate sync endpoint and print status
 
 #### Scenario: siphon config <key> <value> calls PUT /settings/{key}
-- **WHEN** `siphon config check-interval 3600` is called
-- **THEN** the CLI SHALL PUT to `http://localhost:8000/settings/check-interval`
+- **WHEN** `siphon config interval 3600` is called
+- **THEN** the CLI SHALL PUT to `http://localhost:8000/settings/interval`
 
 ---
 
@@ -100,9 +100,9 @@ functions. The CLI layer becomes a thin presentation wrapper.
 ### Requirement: `siphon config` subcommand
 `siphon config <key> [<value>]` SHALL read or write a global configuration
 setting stored in the DB `settings` table via the daemon API. The set of known
-keys is: `mb-user-agent`, `log-level`, `max-concurrent-downloads`,
-`check-interval`. Attempting to read or write an unknown key SHALL print an error
-listing valid keys and exit with a non-zero code.
+keys is: `mb-user-agent`, `log-level`, `max-concurrent-downloads`, `interval`.
+Attempting to read or write an unknown key SHALL print an error listing valid
+keys and exit with a non-zero code.
 
 #### Scenario: Read a setting that has been set
 - **WHEN** `siphon config <key>` is called and the key has a stored value
@@ -122,18 +122,62 @@ listing valid keys and exit with a non-zero code.
 - **THEN** the CLI SHALL print an error listing the known keys and exit with a
   non-zero code
 
-#### Scenario: Write check-interval — invalid value
-- **WHEN** `siphon config check-interval abc` or a non-positive integer is passed
+#### Scenario: Write interval — invalid value
+- **WHEN** `siphon config interval abc` or a non-positive integer is passed
 - **THEN** the CLI SHALL print an error and exit non-zero without writing to the
   daemon
 
 ---
 
+### Requirement: `siphon config-playlist` subcommand
+`siphon config-playlist <name> [<key> [<value>]]` SHALL read or write a
+per-playlist setting for a playlist already registered in the DB. The set of
+known per-playlist keys is: `interval`, `watched`, `auto-rename`. Omitting both
+`<key>` and `<value>` SHALL print all current settings for the named playlist.
+Omitting only `<value>` SHALL print the current value of the given key.
+
+#### Scenario: Show all settings for a playlist
+- **WHEN** `siphon config-playlist "Listen Later"` is called (no key)
+- **THEN** the CLI SHALL print `name`, `watched`, `interval`, and `auto-rename`
+  for that playlist and exit 0; if no per-playlist interval is set, `interval`
+  SHALL display as `<N> (global default)` where N is the resolved fallback value
+
+#### Scenario: Read one key
+- **WHEN** `siphon config-playlist "Listen Later" interval` is called
+- **THEN** the CLI SHALL print the current per-playlist interval, or `<N> (global default)`
+  showing the resolved fallback value if no per-playlist interval is set
+
+#### Scenario: Set interval
+- **WHEN** `siphon config-playlist "Listen Later" interval 3600` is called
+- **THEN** the CLI SHALL PATCH `/playlists/{id}` with `{"check_interval_secs": 3600}`,
+  the scheduler SHALL reschedule the playlist with the new interval, and the CLI
+  SHALL print `"Set interval for 'Listen Later'."` and exit 0
+
+#### Scenario: Set watched
+- **WHEN** `siphon config-playlist "Listen Later" watched false` is called
+- **THEN** the CLI SHALL PATCH `/playlists/{id}` with `{"watched": false}` and
+  the scheduler SHALL cancel the playlist's timer
+
+#### Scenario: Set auto-rename
+- **WHEN** `siphon config-playlist "Listen Later" auto-rename true` is called
+- **THEN** the CLI SHALL PATCH `/playlists/{id}` with `{"auto_rename": true}`
+
+#### Scenario: Unknown playlist name
+- **WHEN** `siphon config-playlist "No Such Playlist" interval 3600` is called
+- **THEN** the CLI SHALL print an error and exit non-zero
+
+#### Scenario: Unknown per-playlist key
+- **WHEN** `siphon config-playlist "Listen Later" unknown-key value` is called
+- **THEN** the CLI SHALL print an error listing the known per-playlist keys and exit non-zero
+
+---
+
 ### Requirement: CLI entry point
 The system SHALL expose a `siphon` command installed via `pyproject.toml`
-`[project.scripts]`. The command SHALL support seven subcommands: `add`, `sync`,
-`sync-failed`, `list`, `delete`, `config`, and `watch`. Invoking `siphon`
-without a subcommand or with `--help` SHALL print usage information.
+`[project.scripts]`. The command SHALL support eight subcommands: `add`, `sync`,
+`sync-failed`, `list`, `delete`, `config`, `config-playlist`, and `watch`.
+Invoking `siphon` without a subcommand or with `--help` SHALL print usage
+information.
 
 #### Scenario: Entry point is installed
 - **WHEN** the package is installed with `pip install -e .`

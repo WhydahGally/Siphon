@@ -72,3 +72,6 @@ See the `scheduler` change for implementation details. Summary:
 - An independent `PlaylistScheduler` module manages per-playlist timers.
 - Config changes signal the daemon (SIGUSR1) to rebuild the scheduler from DB.
 - No external dependencies beyond the stdlib.
+
+
+Dev note: We may want to consider atom feed within the scheduler since that would be cheaper on resources (atm feed only fetches ~15 videos while current implementation fetches the entire playlist and does a DB calculation). We may need to bring back yt-dlp's archive file feature for quicker comparison. Priority P4.

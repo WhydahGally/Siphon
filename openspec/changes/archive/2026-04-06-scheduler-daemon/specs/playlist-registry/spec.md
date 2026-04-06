@@ -6,7 +6,7 @@ The `playlists` table SHALL gain two new columns:
 - `watched` (INTEGER NOT NULL DEFAULT 1) — whether the playlist is included in
   automatic scheduler syncs. `1` = watched, `0` = manual sync only.
 - `check_interval_secs` (INTEGER NULL DEFAULT NULL) — per-playlist override for
-  the check interval in seconds. NULL means inherit the global `check-interval`
+  the check interval in seconds. NULL means inherit the global `interval`
   setting.
 
 Both columns SHALL be added via `ALTER TABLE` migration in `init_db()`, safe to
@@ -24,17 +24,21 @@ run against existing databases.
 
 ---
 
-### Requirement: check-interval settings key
-The `settings` table SHALL recognise `check-interval` as a valid key representing
+### Requirement: interval settings key
+The `settings` table SHALL recognise `interval` as a valid key representing
 the global default sync interval in seconds (integer, stored as TEXT). The daemon
 SHALL validate that the value is a positive integer when written.
 
-#### Scenario: Write check-interval
-- **WHEN** `registry.set_setting("check-interval", "3600")` is called
+> **Note**: Originally named `check-interval`; renamed to `interval` during
+> implementation for consistency with the `--interval` flag used on `add` and
+> `config-playlist`.
+
+#### Scenario: Write interval
+- **WHEN** `registry.set_setting("check_interval", "3600")` is called
 - **THEN** the value SHALL be upserted into the `settings` table
 
-#### Scenario: Read check-interval — not set
-- **WHEN** `registry.get_setting("check-interval")` is called and the key has
+#### Scenario: Read interval — not set
+- **WHEN** `registry.get_setting("check_interval")` is called and the key has
   never been set
 - **THEN** `None` SHALL be returned
 
