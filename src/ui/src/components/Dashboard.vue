@@ -29,7 +29,7 @@ function onJobCreated(jobId) {
 
 /* Before first job: vertically center the form in the remaining viewport */
 .dashboard.centered {
-  min-height: calc(100vh - 56px);
+  min-height: calc(70vh - 56px);
   justify-content: center;
 }
 

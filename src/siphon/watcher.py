@@ -981,7 +981,8 @@ def api_get_settings():
 
 @app.get("/settings/{key}")
 def api_get_setting(key: str):
-    value = registry.get_setting(key)
+    db_key = _KNOWN_KEYS[key][0] if key in _KNOWN_KEYS else key
+    value = registry.get_setting(db_key)
     return {"key": key, "value": value}
 
 
