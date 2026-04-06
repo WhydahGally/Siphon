@@ -93,6 +93,7 @@ class JobItem:
     url: str
     state: str  # "pending" | "downloading" | "done" | "failed"
     renamed_to: Optional[str] = None
+    rename_tier: Optional[str] = None
     error: Optional[str] = None
     started_at: Optional[float] = None
     finished_at: Optional[float] = None
@@ -204,6 +205,7 @@ class JobStore:
         state: str,
         *,
         renamed_to: Optional[str] = None,
+        rename_tier: Optional[str] = None,
         error: Optional[str] = None,
     ) -> None:
         event: Optional[dict] = None
@@ -220,6 +222,8 @@ class JobStore:
                         item.finished_at = time.time()
                     if renamed_to is not None:
                         item.renamed_to = renamed_to
+                    if rename_tier is not None:
+                        item.rename_tier = rename_tier
                     if error is not None:
                         item.error = error
                     event = {
@@ -228,6 +232,7 @@ class JobStore:
                         "state": state,
                         "yt_title": item.yt_title,
                         "renamed_to": item.renamed_to,
+                        "rename_tier": item.rename_tier,
                         "error": item.error,
                     }
                     break
@@ -1221,6 +1226,7 @@ def _job_to_dict(job: DownloadJob) -> dict:
                 "yt_title": item.yt_title,
                 "state": item.state,
                 "renamed_to": item.renamed_to,
+                "rename_tier": item.rename_tier,
                 "error": item.error,
             }
             for item in job.items
@@ -1285,9 +1291,10 @@ def _run_download_job(
                 )
         else:
             renamed_to = record.renamed_to if record else None
+            rename_tier = record.rename_tier if record else None
             if _job_store is not None:
                 _job_store.update_item_state(
-                    job_id, entry["id"], "done", renamed_to=renamed_to,
+                    job_id, entry["id"], "done", renamed_to=renamed_to, rename_tier=rename_tier,
                 )
         return record, failure
 

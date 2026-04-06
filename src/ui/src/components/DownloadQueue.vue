@@ -39,6 +39,7 @@ function connectSSE(jobId) {
     if (!item) return
     item.state = event.state
     item.renamed_to = event.renamed_to
+    item.rename_tier = event.rename_tier
     item.error = event.error
   }
 

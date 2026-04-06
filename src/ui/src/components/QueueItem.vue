@@ -20,6 +20,7 @@ const emit = defineEmits(['retry'])
         <span class="original-title">{{ item.yt_title }}</span>
         <span class="arrow"> → </span>
         <span class="renamed-title">{{ item.renamed_to }}</span>
+        <span v-if="item.rename_tier" class="tier-badge">{{ item.rename_tier }}</span>
       </span>
       <span v-else class="item-title">{{ item.yt_title }}</span>
 
@@ -106,6 +107,7 @@ const emit = defineEmits(['retry'])
 }
 
 .item-title {
+  display: block;
   font-size: 14px;
   color: var(--text);
   white-space: nowrap;
@@ -124,6 +126,21 @@ const emit = defineEmits(['retry'])
 .renamed-title {
   color: var(--text);
   font-weight: 500;
+}
+
+.tier-badge {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 6px;
+  font-weight: 700;
+  background: rgba(124, 106, 247, 0.15);
+  color: var(--accent);
+  vertical-align: super;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  line-height: 1;
 }
 
 .item-error {
