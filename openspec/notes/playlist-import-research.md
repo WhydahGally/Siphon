@@ -2,7 +2,7 @@
 
 **Context**: Explored during the "playlist-watcher" change design. Import allows an existing local folder of downloaded files to be registered in the watcher DB so that future syncs don't re-download them.
 
-User's note: I think the LLM assumed that the downloaded files were already downloaded using Siphon but I was thinking more of a local library that was downloaded manually from YT using something like meTube.
+Dev's note: I think the LLM assumed that the downloaded files were already downloaded using Siphon but I was thinking more of a local library that was downloaded manually from YT using something like meTube.
 
 ---
 
