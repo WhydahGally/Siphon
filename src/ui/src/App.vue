@@ -30,6 +30,6 @@ const currentPage = ref('dashboard')
   max-width: 960px;
   width: 100%;
   margin: 0 auto;
-  padding: 32px 24px;
+  padding: 0 24px;
 }
 </style>

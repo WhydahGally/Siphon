@@ -2,6 +2,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import QueueItem from './QueueItem.vue'
 
+const emit = defineEmits(['has-jobs'])
+
 // jobs: Array of job objects matching the GET /jobs response shape
 const jobs = ref([])
 
@@ -59,6 +61,9 @@ onMounted(async () => {
     const res = await fetch('/jobs')
     if (res.ok) {
       jobs.value = await res.json()
+      if (jobs.value.length > 0) {
+        emit('has-jobs')
+      }
       // Reconnect SSE for any in-progress jobs
       for (const job of jobs.value) {
         if (!isTerminal(job)) {

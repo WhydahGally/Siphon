@@ -159,7 +159,7 @@ async function handleDownload() {
           placeholder="86400"
           :disabled="loading"
         />
-        <span class="interval-hint">seconds (default: 24 hours)</span>
+        <span class="interval-hint">seconds</span>
       </div>
     </div>
 
