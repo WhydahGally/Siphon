@@ -1,2 +1,4 @@
 yt-dlp==2026.3.17
 requests>=2.32
+fastapi>=0.110
+uvicorn[standard]>=0.29
