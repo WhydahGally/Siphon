@@ -1,7 +1,5 @@
-## ADDED Requirements
-
 ### Requirement: Navigation bar
-The web UI SHALL render a persistent top navigation bar on every page. The left edge SHALL display the "Siphon" logo/text. The centre SHALL contain three navigation buttons: Dashboard, Library, and Settings. The active page SHALL be visually distinguished from inactive pages. The default page on first load SHALL be Dashboard.
+The web UI SHALL render a persistent top navigation bar on every page. The left edge SHALL display the "Siphon" logo/text. The centre SHALL contain two navigation buttons: Dashboard and Library. A settings gear icon button SHALL be positioned at the right edge and SHALL navigate to the Settings page. The active page SHALL be visually distinguished from inactive pages (active underline for centre buttons; accent colour for the gear icon when Settings is active). The default page on first load SHALL be Dashboard.
 
 #### Scenario: Initial load shows Dashboard
 - **WHEN** the user opens the web UI in a browser
@@ -62,11 +60,11 @@ When the user clicks Download, the UI SHALL POST to `POST /jobs` with the URL, f
 
 #### Scenario: Empty URL submission
 - **WHEN** the user clicks Download with an empty URL input
-- **THEN** no request SHALL be made and the input SHALL be visually highlighted as required
+- **THEN** no request SHALL be made and a toast error message SHALL be shown
 
 #### Scenario: Daemon unavailable
 - **WHEN** the `POST /jobs` request fails due to a network error
-- **THEN** the UI SHALL display an error message and re-enable the Download button
+- **THEN** the UI SHALL display a toast error message and re-enable the Download button
 
 ---
 

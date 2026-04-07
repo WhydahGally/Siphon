@@ -59,17 +59,17 @@
 
 - [x] 7.1 Add a first build stage to `Dockerfile` using `node:22-slim`; copy `src/ui/`; run `npm ci && npm run build`; output lands in `/build/dist`
 - [x] 7.2 In the Python stage, add `COPY --from=0 /build/dist /app/src/ui/dist`
-- [ ] 7.3 Verify `docker build` succeeds end-to-end and `GET /` from the container returns the Vue SPA index page
+- [x] 7.3 Verify `docker build` succeeds end-to-end and `GET /` from the container returns the Vue SPA index page
 
 ## 8. Verification
 
 - [x] 8.1 Run `siphon watch` locally and `npm run dev` in `src/ui/`; confirm the Dashboard loads at `http://localhost:5173` and the Vite proxy correctly reaches the daemon at `:8000`
 - [x] 8.2 Submit a playlist URL via the UI; confirm the job appears in the queue with items in `pending` state, transitions to `downloading`, and eventually `done`
 - [x] 8.3 Submit a single-video URL; confirm auto-sync toggle is hidden and the download completes successfully
-- [ ] 8.4 Trigger a deliberately failing URL; confirm the item row turns red and the Retry button appears
-- [ ] 8.5 Click "Retry failed"; confirm items return to `pending` and re-attempt download
-- [ ] 8.6 Click "Clear list" after a job completes; confirm the job is removed from the UI and `DELETE /jobs/{id}` returns 204
-- [ ] 8.7 Refresh the browser mid-download; confirm the queue repopulates from `GET /jobs` and SSE resumes
-- [ ] 8.8 Select an audio format; confirm Quality selector shows "best" and is non-interactive; hover over it and confirm tooltip text appears
-- [ ] 8.9 Enable Auto rename with no `mb-user-agent` configured; confirm the warning icon and tooltip appear
-- [ ] 8.10 Build the Docker image; open `http://localhost:8000` in a browser; confirm the SPA loads and all Dashboard features work
+- [x] 8.4 Trigger a deliberately failing URL; confirm the item row turns red and the Retry button appears
+- [x] 8.5 Click "Retry failed"; confirm items return to `pending` and re-attempt download
+- [x] 8.6 Click "Clear list" after a job completes; confirm the job is removed from the UI and `DELETE /jobs/{id}` returns 204
+- [x] 8.7 Refresh the browser mid-download; confirm the queue repopulates from `GET /jobs` and SSE resumes
+- [x] 8.8 Select an audio format; confirm Quality selector shows "best" and is non-interactive; hover over it and confirm tooltip text appears
+- [x] 8.9 Enable Auto rename with no `mb-user-agent` configured; confirm the warning icon and tooltip appear
+- [x] 8.10 Build the Docker image; open `http://localhost:8000` in a browser; confirm the SPA loads and all Dashboard features work

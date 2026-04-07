@@ -131,10 +131,11 @@ In development, `src/ui/dist/` doesn't need to exist — the Vite dev server ser
 ### D7: Single-video URL support
 
 The "playlist URL only" guard lives at line 627 of `watcher.py` inside `api_add_playlist`. The `download()` engine has always handled both. The guard is removed from `api_add_playlist`. The `playlist-watcher-cli` spec delta removes the corresponding scenario. For single-video URLs:
-- `playlist_id` is set to the video ID itself
 - `playlist_name` is set to the video title
+- `DownloadJob.playlist_id` is `None` (single-video jobs are not registered in the playlist DB)
 - No scheduler timer is armed (watched=False implicitly, no auto-sync concept)
-- The `DownloadJob.playlist_id` is `None`
+- DB tracking (items table, failed_downloads) is skipped — job state is in-memory only
+- Downloaded file goes directly into `output_dir` (no subfolder)
 
 ## Risks / Trade-offs
 

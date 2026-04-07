@@ -25,7 +25,7 @@ onMounted(async () => {
   try {
     const res = await fetch('/settings/mb-user-agent')
     const data = await res.json()
-    mbUserAgentMissing.value = data.value === null || data.value === undefined
+    mbUserAgentMissing.value = !data.value
   } catch {
     // daemon not reachable yet — don't crash
   }
@@ -139,7 +139,7 @@ async function handleDownload() {
         <span
           v-if="autoRename && mbUserAgentMissing"
           class="warn-icon"
-          title="MusicBrainz lookups require mb-user-agent to be configured. Run: siphon config mb-user-agent &quot;App/1.0 (you@example.com)&quot;"
+          title="MusicBrainz lookups require mb-user-agent to be configured."
         >⚠</span>
       </label>
 

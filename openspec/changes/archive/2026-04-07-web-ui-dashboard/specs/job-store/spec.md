@@ -41,7 +41,7 @@ The daemon SHALL expose `POST /jobs` which accepts a JSON body containing: `url`
 
 #### Scenario: Already-registered playlist URL
 - **WHEN** `POST /jobs` is called with a playlist URL already registered
-- **THEN** no duplicate registry entry SHALL be created; a new DownloadJob SHALL be created and only items not already in the `items` table SHALL be queued; response SHALL be `202 { job_id }`
+- **THEN** no duplicate registry entry SHALL be created; a new DownloadJob SHALL be created and only items not already in the `items` table SHALL be queued; response SHALL be `202 { "job_id": "<uuid>", "existing_playlist": true }`
 
 #### Scenario: Single-video URL submitted
 - **WHEN** `POST /jobs` is called with a single-video URL
@@ -97,11 +97,15 @@ The daemon SHALL expose `DELETE /jobs/{id}` which removes a job from the `JobSto
 ---
 
 ### Requirement: `POST /jobs/{id}/retry-failed` endpoint
-The daemon SHALL expose `POST /jobs/{id}/retry-failed` which resets all `failed` items in the job back to `pending` state and re-dispatches them to the download worker pool. The endpoint SHALL clear the existing failure records for those video IDs in the `failed_downloads` DB table so that the retry attempt count is preserved (incremented, not reset).
+The daemon SHALL expose `POST /jobs/{id}/retry-failed` which resets all `failed` items in the job back to `pending` state and re-dispatches them to the download worker pool. For playlist jobs (`playlist_id` is set), the existing `failed_downloads` DB record is NOT cleared before retry; instead `insert_failed` is called again on the next failure, incrementing the attempt count. For single-video jobs (`playlist_id` is None), no DB failure tracking occurs — failure state is in-memory only and the attempt count is not persisted.
 
 #### Scenario: Retry all failed items
 - **WHEN** `POST /jobs/{id}/retry-failed` is called for a job with one or more failed items
 - **THEN** those items SHALL transition back to `pending`, download SHALL be re-dispatched, and the SSE stream SHALL resume emitting events for those items
+
+#### Scenario: Retry increments attempt count (playlist jobs only)
+- **WHEN** a retried playlist item fails again
+- **THEN** `insert_failed` SHALL be called again, incrementing the attempt count in `failed_downloads`; after 3 total failures the item will be skipped by `_filter_entries` on future syncs
 
 #### Scenario: No failed items to retry
 - **WHEN** `POST /jobs/{id}/retry-failed` is called and no items are in failed state
