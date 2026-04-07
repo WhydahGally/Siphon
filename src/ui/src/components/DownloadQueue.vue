@@ -135,8 +135,8 @@ defineExpose({ addJob })
       <div class="queue-title-row">
         <h2 class="section-title">Downloads</h2>
         <span v-if="activeJob" class="progress-summary">
-          {{ activeJob.done }} / {{ activeJob.total }} downloaded
-          <span v-if="activeJob.failed > 0" class="failed-count">&nbsp;· {{ activeJob.failed }} failed</span>
+          {{ activeJob.items.filter(i => i.state === 'done').length }} / {{ activeJob.items.length }} downloaded
+          <span v-if="activeJob.items.filter(i => i.state === 'failed').length > 0" class="failed-count">&nbsp;· {{ activeJob.items.filter(i => i.state === 'failed').length }} failed</span>
         </span>
       </div>
       <div class="queue-actions">
