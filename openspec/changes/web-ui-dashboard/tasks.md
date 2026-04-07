@@ -63,9 +63,9 @@
 
 ## 8. Verification
 
-- [ ] 8.1 Run `siphon watch` locally and `npm run dev` in `src/ui/`; confirm the Dashboard loads at `http://localhost:5173` and the Vite proxy correctly reaches the daemon at `:8000`
-- [ ] 8.2 Submit a playlist URL via the UI; confirm the job appears in the queue with items in `pending` state, transitions to `downloading`, and eventually `done`
-- [ ] 8.3 Submit a single-video URL; confirm auto-sync toggle is hidden and the download completes successfully
+- [x] 8.1 Run `siphon watch` locally and `npm run dev` in `src/ui/`; confirm the Dashboard loads at `http://localhost:5173` and the Vite proxy correctly reaches the daemon at `:8000`
+- [x] 8.2 Submit a playlist URL via the UI; confirm the job appears in the queue with items in `pending` state, transitions to `downloading`, and eventually `done`
+- [x] 8.3 Submit a single-video URL; confirm auto-sync toggle is hidden and the download completes successfully
 - [ ] 8.4 Trigger a deliberately failing URL; confirm the item row turns red and the Retry button appears
 - [ ] 8.5 Click "Retry failed"; confirm items return to `pending` and re-attempt download
 - [ ] 8.6 Click "Clear list" after a job completes; confirm the job is removed from the UI and `DELETE /jobs/{id}` returns 204

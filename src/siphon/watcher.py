@@ -434,16 +434,29 @@ def _download_worker(
     title = entry["title"]
     video_url = entry["url"]
 
-    # Items go into a per-playlist subfolder: <output_dir>/<playlist_name>/
-    folder_key = playlist_name or playlist_id or video_id
-    safe_folder = sanitize_name(folder_key) or video_id
-    item_output_dir = os.path.join(output_dir, safe_folder)
+    # Single-video jobs (playlist_id=None) go directly into output_dir.
+    # Playlist items go into a per-playlist subfolder: <output_dir>/<playlist_name>/
+    if playlist_id is None:
+        item_output_dir = output_dir
+    else:
+        folder_key = playlist_name or playlist_id or video_id
+        safe_folder = sanitize_name(folder_key) or video_id
+        item_output_dir = os.path.join(output_dir, safe_folder)
     os.makedirs(item_output_dir, exist_ok=True)
 
     item_result: list = []  # mutable container for on_item_complete callback
 
     def on_item(record: ItemRecord) -> None:
         item_result.append(record)
+
+    # Track whether yt-dlp actually finished downloading a file.
+    # yt-dlp uses ignoreerrors=True, so unavailable/private/deleted videos are
+    # silently skipped — no exception is raised, but no progress hook fires either.
+    _file_downloaded: list = []
+
+    def _track_progress(event: dict) -> None:
+        if event.get("status") == "finished":
+            _file_downloaded.append(True)
 
     start = time.monotonic()
 
@@ -452,13 +465,23 @@ def _download_worker(
             url=video_url,
             output_dir=item_output_dir,
             options=options,
-            progress_callback=None,
+            progress_callback=_track_progress,
             mb_user_agent=mb_user_agent,
             auto_rename=auto_rename,
             on_item_complete=on_item,
         )
     except Exception as exc:
         err = str(exc)
+        if playlist_id is not None:
+            registry.insert_failed(video_id, playlist_id, title, video_url, err)
+        logger.warning("  \u2717 %s \u2014 %s", title, err)
+        return None, FailureRecord(video_id=video_id, title=title, url=video_url, error_message=err)
+
+    # If no file was downloaded, yt-dlp silently skipped this entry (unavailable,
+    # private, deleted, or region-blocked).  Treat it as a failure so the UI
+    # shows a red row and Retry button instead of a false green check mark.
+    if not _file_downloaded:
+        err = "Video unavailable, private, or deleted"
         if playlist_id is not None:
             registry.insert_failed(video_id, playlist_id, title, video_url, err)
         logger.warning("  \u2717 %s \u2014 %s", title, err)

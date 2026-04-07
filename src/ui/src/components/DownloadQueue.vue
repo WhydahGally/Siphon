@@ -22,6 +22,10 @@ const activeJob = computed(() => {
   return jobs.value.find(j => !isTerminal(j)) ?? jobs.value[0] ?? null
 })
 
+// Separate single-video jobs (no playlist_id) from playlist jobs
+const singleJobs = computed(() => jobs.value.filter(j => j.playlist_id === null || j.playlist_id === undefined))
+const playlistJobs = computed(() => jobs.value.filter(j => j.playlist_id !== null && j.playlist_id !== undefined))
+
 function isTerminal(job) {
   return job.items.length > 0 && job.items.every(i => i.state === 'done' || i.state === 'failed')
 }
@@ -153,7 +157,7 @@ defineExpose({ addJob })
       </div>
     </div>
 
-    <div v-for="job in jobs" :key="job.job_id" class="job-block">
+    <div v-for="job in playlistJobs" :key="job.job_id" class="job-block">
       <div v-if="job.playlist_name" class="job-name">{{ job.playlist_name }}</div>
       <QueueItem
         v-for="item in sortedItems(job.items)"
@@ -162,6 +166,19 @@ defineExpose({ addJob })
         :job-id="job.job_id"
         @retry="retryFailed"
       />
+    </div>
+
+    <div v-if="singleJobs.length > 0" class="job-block">
+      <div class="job-name">Default</div>
+      <template v-for="job in singleJobs" :key="job.job_id">
+        <QueueItem
+          v-for="item in sortedItems(job.items)"
+          :key="item.video_id"
+          :item="item"
+          :job-id="job.job_id"
+          @retry="retryFailed"
+        />
+      </template>
     </div>
   </section>
 </template>
