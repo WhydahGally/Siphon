@@ -1090,6 +1090,22 @@ def api_create_job(body: JobCreate):
     if _job_store is None:
         raise HTTPException(status_code=503, detail="Job store not initialised.")
 
+    if not entries:
+        raise HTTPException(status_code=422, detail="Nothing new to download — all videos are already in the library.")
+
+    # Guard against submitting the same playlist while it is still downloading.
+    if playlist_id is not None:
+        active = [
+            j for j in _job_store.list_jobs()
+            if j.playlist_id == playlist_id
+            and not all(i.state in ("done", "failed") for i in j.items)
+        ]
+        if active:
+            raise HTTPException(
+                status_code=409,
+                detail="A download is already in progress for this playlist.",
+            )
+
     job_id = _job_store.create_job(playlist_id, playlist_name, entries)
     options = _build_options(body.format, body.quality)
     mb_user_agent = registry.get_setting("mb_user_agent")
