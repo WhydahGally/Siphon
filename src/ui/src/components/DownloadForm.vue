@@ -1,7 +1,9 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useToast } from '../composables/useToast.js'
 
 const emit = defineEmits(['job-created'])
+const { showToast } = useToast()
 
 const url = ref('')
 const format = ref('mp3')
@@ -10,7 +12,6 @@ const autoRename = ref(true)
 const autoSync = ref(true)
 const interval = ref(86400)
 const loading = ref(false)
-const error = ref('')
 const mbUserAgentMissing = ref(false)
 
 const AUDIO_FORMATS = ['mp3', 'opus']
@@ -32,10 +33,9 @@ onMounted(async () => {
 
 async function handleDownload() {
   if (!url.value.trim()) {
-    error.value = 'Please enter a URL.'
+    showToast('Please enter a URL.')
     return
   }
-  error.value = ''
   loading.value = true
 
   const body = {
@@ -57,14 +57,17 @@ async function handleDownload() {
     })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      error.value = data.detail || `Error ${res.status}`
+      showToast(data.detail || `Error ${res.status}`)
       return
     }
     const data = await res.json()
+    if (data.existing_playlist) {
+      showToast('Playlist already in library — syncing new videos.', 'info')
+    }
     emit('job-created', data.job_id)
     url.value = ''
   } catch (e) {
-    error.value = 'Could not reach the daemon. Is siphon watch running?'
+    showToast('Could not reach the daemon. Is siphon watch running?')
   } finally {
     loading.value = false
   }
@@ -163,7 +166,6 @@ async function handleDownload() {
       </div>
     </div>
 
-    <p v-if="error" class="error-msg">{{ error }}</p>
   </section>
 </template>
 
@@ -368,12 +370,6 @@ async function handleDownload() {
 .interval-hint {
   font-size: 12px;
   color: var(--text-muted);
-}
-
-.error-msg {
-  color: var(--error);
-  font-size: 13px;
-  margin-top: -4px;
 }
 
 .spinner-sm {

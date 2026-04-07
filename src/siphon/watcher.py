@@ -162,6 +162,13 @@ class JobStore:
             created_at=time.time(),
         )
         with self._lock:
+            # Atomic guard: reject if an active (non-terminal) job already exists
+            # for this playlist. Checked under the lock so concurrent requests
+            # can't both slip through before either job is created.
+            if playlist_id is not None:
+                for existing in self._jobs.values():
+                    if existing.playlist_id == playlist_id and not existing.is_terminal():
+                        raise ValueError("active_job_exists")
             self._evict_if_needed()
             self._jobs[job_id] = job
             self._queues[job_id] = []
@@ -1051,6 +1058,7 @@ def api_create_job(body: JobCreate):
         raise HTTPException(status_code=422, detail="Could not retrieve info for URL.")
 
     is_playlist = info.get("_type") == "playlist" or bool(info.get("entries"))
+    existing_playlist = False
 
     if is_playlist:
         playlist_id = info.get("id") or info.get("playlist_id")
@@ -1070,8 +1078,9 @@ def api_create_job(body: JobCreate):
                 watched=body.watched,
                 check_interval_secs=body.check_interval_secs,
             )
+            existing_playlist = False
         except ValueError:
-            pass  # already registered — that's fine, just create a new job
+            existing_playlist = True  # already registered — sync new videos only
 
         if body.watched and _scheduler is not None:
             _scheduler.add_playlist(playlist_id)
@@ -1088,25 +1097,20 @@ def api_create_job(body: JobCreate):
         entries = [{"id": video_id, "url": url, "title": info.get("title") or video_id}]
 
     if _job_store is None:
-        raise HTTPException(status_code=503, detail="Job store not initialised.")
+        raise HTTPException(status_code=503, detail="Job store not initialized.")
 
     if not entries:
-        raise HTTPException(status_code=422, detail="Nothing new to download — all videos are already in the library.")
+        raise HTTPException(status_code=422, detail="Library is up to date.")
 
-    # Guard against submitting the same playlist while it is still downloading.
-    if playlist_id is not None:
-        active = [
-            j for j in _job_store.list_jobs()
-            if j.playlist_id == playlist_id
-            and not all(i.state in ("done", "failed") for i in j.items)
-        ]
-        if active:
+    try:
+        job_id = _job_store.create_job(playlist_id, playlist_name, entries)
+    except ValueError as exc:
+        if str(exc) == "active_job_exists":
             raise HTTPException(
                 status_code=409,
                 detail="A download is already in progress for this playlist.",
             )
-
-    job_id = _job_store.create_job(playlist_id, playlist_name, entries)
+        raise
     options = _build_options(body.format, body.quality)
     mb_user_agent = registry.get_setting("mb_user_agent")
 
@@ -1127,7 +1131,7 @@ def api_create_job(body: JobCreate):
     )
     t.start()
 
-    return {"job_id": job_id}
+    return {"job_id": job_id, "existing_playlist": existing_playlist}
 
 
 @app.get("/jobs")
@@ -1140,7 +1144,7 @@ def api_list_jobs():
 @app.get("/jobs/{job_id}/stream")
 async def api_stream_job(job_id: str):
     if _job_store is None:
-        raise HTTPException(status_code=503, detail="Job store not initialised.")
+        raise HTTPException(status_code=503, detail="Job store not initialized.")
     job = _job_store.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
@@ -1190,7 +1194,7 @@ async def api_stream_job(job_id: str):
 @app.delete("/jobs/{job_id}", status_code=204)
 def api_delete_job(job_id: str):
     if _job_store is None:
-        raise HTTPException(status_code=503, detail="Job store not initialised.")
+        raise HTTPException(status_code=503, detail="Job store not initialized.")
     try:
         found = _job_store.delete_job(job_id)
     except ValueError:
@@ -1202,7 +1206,7 @@ def api_delete_job(job_id: str):
 @app.post("/jobs/{job_id}/retry-failed")
 def api_retry_failed_job(job_id: str):
     if _job_store is None:
-        raise HTTPException(status_code=503, detail="Job store not initialised.")
+        raise HTTPException(status_code=503, detail="Job store not initialized.")
     job = _job_store.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")

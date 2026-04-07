@@ -4,6 +4,7 @@ import NavBar from './components/NavBar.vue'
 import Dashboard from './components/Dashboard.vue'
 import Library from './components/Library.vue'
 import Settings from './components/Settings.vue'
+import ToastContainer from './components/ToastContainer.vue'
 
 const currentPage = ref('dashboard')
 </script>
@@ -16,6 +17,7 @@ const currentPage = ref('dashboard')
       <Library v-else-if="currentPage === 'library'" />
       <Settings v-else-if="currentPage === 'settings'" />
     </main>
+    <ToastContainer />
   </div>
 </template>
 
