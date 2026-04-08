@@ -188,27 +188,27 @@ defineExpose({ clearSyncing, setSyncInfo })
                 <input type="checkbox" :checked="watched" @change="toggleWatched" />
                 <span class="slider" />
               </span>
-              <span>Auto sync</span>
+              <span class="autosync-text">Auto sync &mdash;
+                <span
+                  v-if="!editingInterval"
+                  class="interval-display"
+                  title="Click to edit sync interval"
+                  @click.prevent.stop="openIntervalEdit"
+                >{{ intervalDisplay }}<svg class="pencil-icon" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
+                <input
+                  v-else
+                  v-model="intervalInput"
+                  class="interval-input"
+                  placeholder="DD:HH:MM:SS"
+                  autofocus
+                  @keydown.enter="saveInterval"
+                  @keydown.escape="cancelIntervalEdit"
+                  @blur="saveInterval"
+                  @click.stop
+                />
+              </span>
             </label>
 
-            <div class="interval-wrapper">
-              <span
-                v-if="!editingInterval"
-                class="interval-display"
-                title="Click to edit sync interval"
-                @click="openIntervalEdit"
-              >{{ intervalDisplay }}</span>
-              <input
-                v-else
-                v-model="intervalInput"
-                class="interval-input"
-                placeholder="DD:HH:MM:SS"
-                autofocus
-                @keydown.enter="saveInterval"
-                @keydown.escape="cancelIntervalEdit"
-                @blur="saveInterval"
-              />
-            </div>
           </div>
         </div>
       </div>
@@ -352,7 +352,7 @@ defineExpose({ clearSyncing, setSyncInfo })
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 14px 12px;
+  padding: 16px 14px 12px;
   flex-wrap: wrap;
 }
 
@@ -439,14 +439,7 @@ defineExpose({ clearSyncing, setSyncInfo })
   background: #fff;
 }
 
-.interval-wrapper {
-  display: flex;
-  align-items: center;
-}
-
 .interval-display {
-  font-size: 13px;
-  color: var(--text-muted);
   cursor: pointer;
   border-bottom: 1px dashed var(--border);
   padding-bottom: 1px;
@@ -456,6 +449,12 @@ defineExpose({ clearSyncing, setSyncInfo })
 .interval-display:hover {
   color: var(--text);
   border-bottom-color: var(--text-muted);
+}
+
+.pencil-icon {
+  vertical-align: middle;
+  margin-left: 3px;
+  opacity: 0.5;
 }
 
 .interval-input {
