@@ -6,10 +6,20 @@
 export function secsToHuman(secs) {
   if (secs === null || secs === undefined) return '—'
   secs = Number(secs)
-  if (secs < 60) return `every ${secs}s`
-  if (secs < 3600) return `every ${Math.floor(secs / 60)}m`
-  if (secs < 86400) return `every ${Math.floor(secs / 3600)}h`
-  return `every ${Math.floor(secs / 86400)}d`
+  if (secs < 60) {
+    const n = secs
+    return n === 1 ? 'Every second' : `Every ${n} seconds`
+  }
+  if (secs < 3600) {
+    const n = Math.floor(secs / 60)
+    return n === 1 ? 'Every minute' : `Every ${n} minutes`
+  }
+  if (secs < 86400) {
+    const n = Math.floor(secs / 3600)
+    return n === 1 ? 'Every hour' : `Every ${n} hours`
+  }
+  const n = Math.floor(secs / 86400)
+  return n === 1 ? 'Every day' : `Every ${n} days`
 }
 
 /**

@@ -160,8 +160,6 @@ defineExpose({ clearSyncing, setSyncInfo })
                 {{ syncInfo === null ? 'Syncing…' : (syncInfo === 0 ? 'No new items found' : `${syncInfo} new item${syncInfo === 1 ? '' : 's'} found`) }}
               </span>
             </span>
-          </div>
-          <div class="row-meta">
             <span class="meta-item">{{ playlist.item_count }} items</span>
             <span class="meta-sep">·</span>
             <span class="meta-item">Added {{ formatDate(playlist.added_at) }}</span>
@@ -312,7 +310,7 @@ defineExpose({ clearSyncing, setSyncInfo })
 .row-title-line {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
 }
 
 .playlist-name {
@@ -336,22 +334,18 @@ defineExpose({ clearSyncing, setSyncInfo })
   color: var(--accent);
 }
 
-.row-meta {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 3px;
-  flex-wrap: wrap;
-}
-
 .meta-item {
   font-size: 12px;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .meta-sep {
-  font-size: 12px;
-  color: var(--border);
+  font-size: 20px;
+  color: var(--text-muted);
+  opacity: 0.5;
+  flex-shrink: 0;
+  line-height: 1;
 }
 
 .row-controls {

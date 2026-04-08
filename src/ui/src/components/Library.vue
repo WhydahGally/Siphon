@@ -123,7 +123,7 @@ onUnmounted(() => {
 
 <template>
   <div class="library">
-    <h2 class="section-title">Library</h2>
+    <h2 class="section-title">Your library</h2>
 
     <div v-if="playlists.length === 0" class="empty-state">
       No playlists yet. Add one from the Dashboard.
