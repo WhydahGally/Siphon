@@ -318,6 +318,25 @@ def _build_options(fmt: str, quality: str = "best") -> DownloadOptions:
     return DownloadOptions(mode="video", quality=quality, video_format=fmt)
 
 
+def _normalise_youtube_url(url: str) -> str:
+    """
+    If the URL contains a YouTube list= param, return a clean playlist URL
+    (https://www.youtube.com/playlist?list=LIST_ID), discarding any v= param.
+    This avoids yt-dlp treating the URL as a single-video context and only
+    returning one entry instead of the full playlist.
+    """
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+    parsed = urlparse(url)
+    if parsed.netloc not in ("www.youtube.com", "youtube.com", "youtu.be"):
+        return url
+    qs = parse_qs(parsed.query, keep_blank_values=True)
+    list_id = qs.get("list", [None])[0]
+    if list_id and "v" in qs:
+        # Has both v= and list= — normalise to clean playlist URL
+        return f"https://www.youtube.com/playlist?list={list_id}"
+    return url
+
+
 def _fetch_playlist_info(url: str) -> dict:
     """Use yt-dlp to fetch playlist metadata without downloading."""
     ydl_opts = {
@@ -900,7 +919,7 @@ class JobCreate(BaseModel):
 
 @app.post("/playlists", status_code=201)
 def api_add_playlist(body: PlaylistCreate):
-    url = body.url
+    url = _normalise_youtube_url(body.url)
     output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
 
     logger.info("Fetching playlist info from YouTube…")
@@ -1108,7 +1127,7 @@ def api_health():
 
 @app.post("/jobs", status_code=202)
 def api_create_job(body: JobCreate):
-    url = body.url
+    url = _normalise_youtube_url(body.url)
     output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
 
     try:
@@ -1162,7 +1181,18 @@ def api_create_job(body: JobCreate):
         raise HTTPException(status_code=503, detail="Job store not initialized.")
 
     if not entries:
-        raise HTTPException(status_code=422, detail="Library is up to date.")
+        if is_playlist and not existing_playlist:
+            # We just registered this playlist but found nothing to download — roll back
+            registry.delete_playlist(playlist_id)
+            if _scheduler is not None:
+                _scheduler.remove_playlist(playlist_id)
+            raise HTTPException(
+                status_code=422,
+                detail="No downloadable videos found in this playlist.\nIt may only contain unavailable videos.",
+            )
+        if is_playlist and existing_playlist:
+            raise HTTPException(status_code=422, detail="Playlist is already registered and up to date.")
+        raise HTTPException(status_code=422, detail="Nothing new to download.")
 
     try:
         job_id = _job_store.create_job(playlist_id, playlist_name, entries)
