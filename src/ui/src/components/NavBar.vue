@@ -54,6 +54,11 @@ const emit = defineEmits(['navigate'])
   color: var(--accent);
   user-select: none;
   justify-self: start;
+  transition: text-shadow 0.2s;
+}
+
+.logo:hover {
+  text-shadow: 0 0 10px var(--accent), 0 0 24px rgba(124, 106, 247, 0.5);
 }
 
 .nav-center {
