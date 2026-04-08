@@ -149,67 +149,66 @@ defineExpose({ clearSyncing, setSyncInfo })
         <span class="chevron">›</span>
       </button>
 
-      <!-- Middle: content -->
-      <div class="row-content">
-        <div class="row-header">
-          <div class="row-title-line">
-            <span class="playlist-name">{{ playlist.name }}</span>
-            <span v-if="syncing" class="sync-indicator">
-              <span class="spinner" />
-              <span class="syncing-label">
-                {{ syncInfo === null ? 'Syncing…' : (syncInfo === 0 ? 'No new items found' : `${syncInfo} new item${syncInfo === 1 ? '' : 's'} found`) }}
-              </span>
+      <!-- col-2: title + sync button -->
+      <div class="row-left">
+        <div class="row-title-line">
+          <span class="playlist-name">{{ playlist.name }}</span>
+          <span v-if="syncing" class="sync-indicator">
+            <span class="spinner" />
+            <span class="syncing-label">
+              {{ syncInfo === null ? 'Syncing…' : (syncInfo === 0 ? 'No new items found' : `${syncInfo} new item${syncInfo === 1 ? '' : 's'} found`) }}
             </span>
-            <span class="meta-item">{{ playlist.item_count }} items</span>
-            <span class="meta-sep">·</span>
-            <span class="meta-item">Added {{ formatDate(playlist.added_at) }}</span>
-            <span class="meta-sep">·</span>
-            <span class="meta-item">
-              {{ playlist.last_synced_at ? `Synced ${formatDate(playlist.last_synced_at)}` : 'Never synced' }}
-            </span>
-          </div>
+          </span>
         </div>
+        <button v-if="!syncing" class="btn-sync" @click="triggerSync">Sync now</button>
+        <div v-else class="sync-placeholder" />
+      </div>
 
-        <div class="row-controls">
-          <button v-if="!syncing" class="btn-sync" @click="triggerSync">Sync now</button>
-          <div v-else class="sync-placeholder" />
+      <!-- col-3: meta + controls -->
+      <div class="row-right">
+        <div class="row-meta-line">
+          <span class="meta-item">{{ playlist.item_count }} items</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-item">Added {{ formatDate(playlist.added_at) }}</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-item">
+            {{ playlist.last_synced_at ? `Synced ${formatDate(playlist.last_synced_at)}` : 'Never synced' }}
+          </span>
+        </div>
+        <div class="controls-group">
+          <label class="toggle-label">
+            <span class="toggle-switch">
+              <input type="checkbox" :checked="autoRename" @change="toggleAutoRename" />
+              <span class="slider" />
+            </span>
+            <span>Auto rename</span>
+          </label>
 
-          <div class="controls-group">
-            <label class="toggle-label">
-              <span class="toggle-switch">
-                <input type="checkbox" :checked="autoRename" @change="toggleAutoRename" />
-                <span class="slider" />
-              </span>
-              <span>Auto rename</span>
-            </label>
-
-            <label class="toggle-label">
-              <span class="toggle-switch">
-                <input type="checkbox" :checked="watched" @change="toggleWatched" />
-                <span class="slider" />
-              </span>
-              <span class="autosync-text">Auto sync &mdash;
-                <span
-                  v-if="!editingInterval"
-                  class="interval-display"
-                  title="Click to edit sync interval"
-                  @click.prevent.stop="openIntervalEdit"
-                >{{ intervalDisplay }}<svg class="pencil-icon" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
-                <input
-                  v-else
-                  v-model="intervalInput"
-                  class="interval-input"
-                  placeholder="DD:HH:MM:SS"
-                  autofocus
-                  @keydown.enter="saveInterval"
-                  @keydown.escape="cancelIntervalEdit"
-                  @blur="saveInterval"
-                  @click.stop
-                />
-              </span>
-            </label>
-
-          </div>
+          <label class="toggle-label">
+            <span class="toggle-switch">
+              <input type="checkbox" :checked="watched" @change="toggleWatched" />
+              <span class="slider" />
+            </span>
+            <span class="autosync-text">Auto sync &mdash;
+              <span
+                v-if="!editingInterval"
+                class="interval-display"
+                title="Click to edit sync interval"
+                @click.prevent.stop="openIntervalEdit"
+              >{{ intervalDisplay }}<svg class="pencil-icon" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
+              <input
+                v-else
+                v-model="intervalInput"
+                class="interval-input"
+                placeholder="DD:HH:MM:SS"
+                autofocus
+                @keydown.enter="saveInterval"
+                @keydown.escape="cancelIntervalEdit"
+                @blur="saveInterval"
+                @click.stop
+              />
+            </span>
+          </label>
         </div>
       </div>
 
@@ -250,10 +249,11 @@ defineExpose({ clearSyncing, setSyncInfo })
   border-color: var(--accent);
 }
 
-/* ── Three-column body ───────────────────────────────────────── */
+/* ── Four-column body ───────────────────────────────────────── */
 .row-body {
-  display: flex;
-  align-items: stretch;   /* both strips grow to full row height */
+  display: grid;
+  grid-template-columns: 52px auto 1fr 76px;
+  align-items: stretch;
 }
 
 /* ── Left: expand strip ──────────────────────────────────────── */
@@ -295,22 +295,35 @@ defineExpose({ clearSyncing, setSyncInfo })
   color: var(--accent);
 }
 
-/* ── Middle: content ─────────────────────────────────────────── */
-.row-content {
-  flex: 1;
-  min-width: 0;
+/* ── col-2 + col-3 ──────────────────────────────────────────── */
+.row-left {
   display: flex;
   flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 16px 12px 14px;
+  min-width: 0;
 }
 
-.row-header {
-  padding: 12px 14px 0;
+.row-right {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+  padding: 12px 14px 12px 24px;
+  min-width: 0;
 }
 
 .row-title-line {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+}
+
+.row-meta-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .playlist-name {
@@ -346,14 +359,6 @@ defineExpose({ clearSyncing, setSyncInfo })
   opacity: 0.5;
   flex-shrink: 0;
   line-height: 1;
-}
-
-.row-controls {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 16px 14px 12px;
-  flex-wrap: wrap;
 }
 
 .controls-group {
