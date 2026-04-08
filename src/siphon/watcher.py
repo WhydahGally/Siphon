@@ -813,16 +813,41 @@ class PlaylistScheduler:
 _scheduler: Optional[PlaylistScheduler] = None
 _job_store: Optional[JobStore] = None
 
+# ---------------------------------------------------------------------------
+# Sync-events state (daemon-memory only, resets on restart)
+# ---------------------------------------------------------------------------
+
+_syncing_playlists: set = set()           # playlist_ids currently syncing
+_sync_event_queues: List[asyncio.Queue] = []  # one per SSE subscriber
+_sync_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def _broadcast_sync_event(event: str, playlist_id: str) -> None:
+    """
+    Broadcast a sync lifecycle event to all sync-events SSE subscribers.
+    Safe to call from background threads: bridges via asyncio.call_soon_threadsafe.
+    """
+    payload = json.dumps({"event": event, "playlist_id": playlist_id})
+    loop = _sync_loop
+    if loop is None:
+        return
+    for q in list(_sync_event_queues):
+        try:
+            loop.call_soon_threadsafe(q.put_nowait, payload)
+        except Exception:
+            pass
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    global _scheduler, _job_store
+    global _scheduler, _job_store, _sync_loop
     data_dir = _resolve_data_dir()
     registry.init_db(data_dir)
     _scheduler = PlaylistScheduler()
     _scheduler.start()
     _job_store = JobStore()
     _job_store.set_loop(asyncio.get_event_loop())
+    _sync_loop = asyncio.get_event_loop()
     yield
     if _scheduler is not None:
         _scheduler.stop()
@@ -931,6 +956,32 @@ def api_list_playlists():
     return [_playlist_to_dict(p) for p in registry.list_playlists()]
 
 
+@app.get("/playlists/sync-events")
+async def api_sync_events():
+    """SSE stream that broadcasts sync_started / sync_done events."""
+    q: asyncio.Queue = asyncio.Queue()
+    _sync_event_queues.append(q)
+
+    async def event_generator():
+        try:
+            while True:
+                payload = await q.get()
+                yield f"data: {payload}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            try:
+                _sync_event_queues.remove(q)
+            except ValueError:
+                pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/playlists/{playlist_id}")
 def api_get_playlist(playlist_id: str):
     row = registry.get_playlist_by_id(playlist_id)
@@ -970,6 +1021,8 @@ def api_sync_playlist(playlist_id: str):
     row = registry.get_playlist_by_id(playlist_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Playlist not found.")
+    _syncing_playlists.add(playlist_id)
+    _broadcast_sync_event("sync_started", playlist_id)
     t = threading.Thread(
         target=_sync_parallel,
         kwargs=dict(
@@ -987,6 +1040,14 @@ def api_sync_playlist(playlist_id: str):
     )
     t.start()
     return {"status": "sync started", "playlist_id": playlist_id}
+
+
+@app.get("/playlists/{playlist_id}/items")
+def api_get_playlist_items(playlist_id: str):
+    row = registry.get_playlist_by_id(playlist_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Playlist not found.")
+    return registry.list_items_for_playlist(playlist_id)
 
 
 @app.post("/playlists/{playlist_id}/sync-failed", status_code=202)
@@ -1251,6 +1312,7 @@ def _playlist_to_dict(row) -> dict:
         return {}
     d = dict(row)
     d["item_count"] = registry.count_items(row["id"])
+    d["is_syncing"] = row["id"] in _syncing_playlists
     return d
 
 
@@ -1509,46 +1571,50 @@ def _sync_parallel(
     max_workers: int,
     auto_rename: bool = False,
 ) -> None:
-    options = _build_options(fmt, quality)
+    try:
+        options = _build_options(fmt, quality)
 
-    logger.info("Enumerating '%s'…", playlist_name)
-    entries = enumerate_entries(url)
-    if not entries:
-        logger.warning("No entries found for playlist '%s' (url=%s)", playlist_name, url)
-        registry.update_last_synced(playlist_id)
-        return
+        logger.info("Enumerating '%s'…", playlist_name)
+        entries = enumerate_entries(url)
+        if not entries:
+            logger.warning("No entries found for playlist '%s' (url=%s)", playlist_name, url)
+            registry.update_last_synced(playlist_id)
+            return
 
-    to_download = _filter_entries(entries, playlist_id)
-    if not to_download:
+        to_download = _filter_entries(entries, playlist_id)
+        if not to_download:
+            registry.update_last_synced(playlist_id)
+            total = registry.count_items(playlist_id)
+            logger.info("'%s': Already up to date. (%d total)", playlist_name, total)
+            return
+
+        logger.info("%d new item(s) to download:", len(to_download))
+        for idx, entry in enumerate(to_download, 1):
+            logger.info("  %d. %s", idx, entry["title"])
+
+        successes, failures = download_parallel(
+            entries=to_download,
+            playlist_id=playlist_id,
+            playlist_name=playlist_name,
+            options=options,
+            output_dir=output_dir,
+            mb_user_agent=mb_user_agent,
+            max_workers=max_workers,
+            auto_rename=auto_rename,
+        )
+
         registry.update_last_synced(playlist_id)
         total = registry.count_items(playlist_id)
-        logger.info("'%s': Already up to date. (%d total)", playlist_name, total)
-        return
+        logger.info("'%s': %d new item(s) added. (%d total)", playlist_name, len(successes), total)
 
-    logger.info("%d new item(s) to download:", len(to_download))
-    for idx, entry in enumerate(to_download, 1):
-        logger.info("  %d. %s", idx, entry["title"])
-
-    successes, failures = download_parallel(
-        entries=to_download,
-        playlist_id=playlist_id,
-        playlist_name=playlist_name,
-        options=options,
-        output_dir=output_dir,
-        mb_user_agent=mb_user_agent,
-        max_workers=max_workers,
-        auto_rename=auto_rename,
-    )
-
-    registry.update_last_synced(playlist_id)
-    total = registry.count_items(playlist_id)
-    logger.info("'%s': %d new item(s) added. (%d total)", playlist_name, len(successes), total)
-
-    if failures:
-        logger.info("Failures (%d):", len(failures))
-        for f in failures:
-            logger.info("  \u2717 %s", f.title)
-            logger.info("    %s", f.error_message)
+        if failures:
+            logger.info("Failures (%d):", len(failures))
+            for f in failures:
+                logger.info("  \u2717 %s", f.title)
+                logger.info("    %s", f.error_message)
+    finally:
+        _syncing_playlists.discard(playlist_id)
+        _broadcast_sync_event("sync_done", playlist_id)
 
 
 def cmd_sync(args: argparse.Namespace) -> int:
@@ -1801,6 +1867,32 @@ def cmd_config_playlist(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# playlist-items
+# ---------------------------------------------------------------------------
+
+def cmd_playlist_items(args: argparse.Namespace) -> int:
+    playlists = _daemon_get("/playlists")
+    match = next((p for p in playlists if p["name"] == args.name), None)
+    if match is None:
+        logger.error("No playlist named '%s'. Run 'siphon list' to see registered playlists.", args.name)
+        return 1
+
+    items = _daemon_get(f"/playlists/{match['id']}/items")
+    if not items:
+        print(f"No items downloaded yet for '{args.name}'.")
+        return 0
+
+    print(f"{args.name} — {len(items)} item(s)")
+    print()
+    for item in items:
+        if item.get("renamed_to"):
+            print(f"  {item['yt_title']} → {item['renamed_to']}")
+        else:
+            print(f"  {item['yt_title']}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -1870,6 +1962,10 @@ def main() -> None:
                         help="Setting to read or write: interval, auto-rename, watched. Omit to show all.")
     p_cfgp.add_argument("value", nargs="?", default=None, help="Value to set. Omit to read the current value.")
 
+    # -- playlist-items --
+    p_pi = sub.add_parser("playlist-items", help="List all downloaded items for a playlist.")
+    p_pi.add_argument("name", help="Name of the playlist.")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -1881,6 +1977,7 @@ def main() -> None:
         "delete": cmd_delete,
         "config": cmd_config,
         "config-playlist": cmd_config_playlist,
+        "playlist-items": cmd_playlist_items,
     }
     sys.exit(dispatch[args.command](args))
 
