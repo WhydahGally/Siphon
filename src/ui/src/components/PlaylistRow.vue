@@ -130,87 +130,90 @@ defineExpose({ clearSyncing })
 
 <template>
   <div class="playlist-row" :class="{ expanded }">
-    <!-- Main row content -->
-    <div class="row-header">
-      <!-- Left: name + meta -->
-      <div class="row-left">
-        <div class="row-title-line">
-          <span class="playlist-name">{{ playlist.name }}</span>
-          <span v-if="syncing" class="sync-indicator">
-            <span class="spinner" />
-            <span class="syncing-label">Syncing…</span>
-          </span>
+    <div class="row-body">
+
+      <!-- Left: expand strip -->
+      <button
+        class="expand-strip"
+        :class="{ 'is-expanded': expanded }"
+        title="View the items in this playlist"
+        @click="toggleExpand"
+      >
+        <span class="chevron">›</span>
+      </button>
+
+      <!-- Middle: content -->
+      <div class="row-content">
+        <div class="row-header">
+          <div class="row-title-line">
+            <span class="playlist-name">{{ playlist.name }}</span>
+            <span v-if="syncing" class="sync-indicator">
+              <span class="spinner" />
+              <span class="syncing-label">Syncing…</span>
+            </span>
+          </div>
+          <div class="row-meta">
+            <span class="meta-item">{{ playlist.item_count }} items</span>
+            <span class="meta-sep">·</span>
+            <span class="meta-item">Added {{ formatDate(playlist.added_at) }}</span>
+            <span class="meta-sep">·</span>
+            <span class="meta-item">
+              {{ playlist.last_synced_at ? `Synced ${formatDate(playlist.last_synced_at)}` : 'Never synced' }}
+            </span>
+          </div>
         </div>
-        <div class="row-meta">
-          <span class="meta-item">{{ playlist.item_count }} items</span>
-          <span class="meta-sep">·</span>
-          <span class="meta-item">Added {{ formatDate(playlist.added_at) }}</span>
-          <span class="meta-sep">·</span>
-          <span class="meta-item">
-            {{ playlist.last_synced_at ? `Synced ${formatDate(playlist.last_synced_at)}` : 'Never synced' }}
-          </span>
+
+        <div class="row-controls">
+          <button v-if="!syncing" class="btn-sync" @click="triggerSync">Sync now</button>
+          <div v-else class="sync-placeholder" />
+
+          <div class="controls-group">
+            <label class="toggle-label">
+              <span class="toggle-switch">
+                <input type="checkbox" :checked="autoRename" @change="toggleAutoRename" />
+                <span class="slider" />
+              </span>
+              <span>Auto rename</span>
+            </label>
+
+            <label class="toggle-label">
+              <span class="toggle-switch">
+                <input type="checkbox" :checked="watched" @change="toggleWatched" />
+                <span class="slider" />
+              </span>
+              <span>Auto sync</span>
+            </label>
+
+            <div class="interval-wrapper">
+              <span
+                v-if="!editingInterval"
+                class="interval-display"
+                title="Click to edit sync interval"
+                @click="openIntervalEdit"
+              >{{ intervalDisplay }}</span>
+              <input
+                v-else
+                v-model="intervalInput"
+                class="interval-input"
+                placeholder="DD:HH:MM:SS"
+                autofocus
+                @keydown.enter="saveInterval"
+                @keydown.escape="cancelIntervalEdit"
+                @blur="saveInterval"
+              />
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- Right: delete -->
-      <div class="row-right">
-        <ConfirmButton label="Delete" danger-label="Delete" @confirm="handleDelete" />
+      <!-- Right: delete strip -->
+      <div class="delete-strip">
+        <ConfirmButton label="Delete" @confirm="handleDelete" />
       </div>
+
     </div>
 
-    <!-- Controls row -->
-    <div class="row-controls">
-      <!-- Sync now -->
-      <button v-if="!syncing" class="btn-sync" @click="triggerSync">Sync now</button>
-      <div v-else class="sync-placeholder" />
-
-      <div class="controls-group">
-        <!-- Auto rename toggle -->
-        <label class="toggle-label">
-          <span class="toggle-switch">
-            <input type="checkbox" :checked="autoRename" @change="toggleAutoRename" />
-            <span class="slider" />
-          </span>
-          <span>Auto rename</span>
-        </label>
-
-        <!-- Auto sync toggle -->
-        <label class="toggle-label">
-          <span class="toggle-switch">
-            <input type="checkbox" :checked="watched" @change="toggleWatched" />
-            <span class="slider" />
-          </span>
-          <span>Auto sync</span>
-        </label>
-
-        <!-- Interval inline edit -->
-        <div class="interval-wrapper">
-          <span
-            v-if="!editingInterval"
-            class="interval-display"
-            :title="'Click to edit sync interval'"
-            @click="openIntervalEdit"
-          >{{ intervalDisplay }}</span>
-          <input
-            v-else
-            v-model="intervalInput"
-            class="interval-input"
-            placeholder="DD:HH:MM:SS"
-            autofocus
-            @keydown.enter="saveInterval"
-            @keydown.escape="cancelIntervalEdit"
-            @blur="saveInterval"
-          />
-        </div>
-
-        <!-- Expand button -->
-        <button class="btn-expand" @click="toggleExpand">
-          {{ expanded ? '▲ Items' : '▶ Items' }}
-        </button>
-      </div>
-    </div>
-
-    <!-- Items panel (accordion) -->
+    <!-- Items panel — full width below the three-column body -->
     <PlaylistItemsPanel
       v-if="expanded"
       :items="items"
@@ -220,6 +223,7 @@ defineExpose({ clearSyncing })
 </template>
 
 <style scoped>
+/* ── Outer card ──────────────────────────────────────────────── */
 .playlist-row {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -232,17 +236,61 @@ defineExpose({ clearSyncing })
   border-color: var(--accent);
 }
 
-.row-header {
+/* ── Three-column body ───────────────────────────────────────── */
+.row-body {
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 16px 0;
+  align-items: stretch;   /* both strips grow to full row height */
 }
 
-.row-left {
+/* ── Left: expand strip ──────────────────────────────────────── */
+.expand-strip {
+  width: 52px;
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  border-right: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.expand-strip:hover {
+  background: rgba(124, 106, 247, 0.07);
+}
+
+.chevron {
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-muted);
+  display: inline-block;
+  transform: rotate(0deg);
+  transition: transform 0.22s ease, color 0.2s, text-shadow 0.2s;
+  /* text-shadow transition starts immediately so glow is visible before tooltip */
+  user-select: none;
+}
+
+.expand-strip:hover .chevron {
+  color: var(--accent);
+  text-shadow: 0 0 10px var(--accent), 0 0 20px rgba(124, 106, 247, 0.4);
+}
+
+.expand-strip.is-expanded .chevron {
+  transform: rotate(90deg);
+  color: var(--accent);
+}
+
+/* ── Middle: content ─────────────────────────────────────────── */
+.row-content {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.row-header {
+  padding: 12px 14px 0;
 }
 
 .row-title-line {
@@ -290,15 +338,11 @@ defineExpose({ clearSyncing })
   color: var(--border);
 }
 
-.row-right {
-  flex-shrink: 0;
-}
-
 .row-controls {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 16px 14px;
+  padding: 10px 14px 12px;
   flex-wrap: wrap;
 }
 
@@ -415,25 +459,17 @@ defineExpose({ clearSyncing })
   outline: none;
 }
 
-.btn-expand {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text-muted);
-  border-radius: var(--radius-sm);
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 500;
-  transition: color 0.15s, border-color 0.15s;
-  white-space: nowrap;
-  margin-left: auto;
+/* ── Right: delete strip ─────────────────────────────────────── */
+.delete-strip {
+  width: 76px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
 }
 
-.btn-expand:hover {
-  color: var(--text);
-  border-color: var(--text-muted);
-}
-
-/* Spinner */
+/* ── Spinner ─────────────────────────────────────────────────── */
 .spinner {
   display: inline-block;
   width: 12px;
