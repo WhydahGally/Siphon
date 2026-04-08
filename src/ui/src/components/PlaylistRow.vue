@@ -293,8 +293,7 @@ defineExpose({ clearSyncing })
 .row-left {
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  gap: 10px;
+  gap: 20px;
   padding: 12px 16px 12px 14px;
   min-width: 0;
 }
@@ -302,7 +301,6 @@ defineExpose({ clearSyncing })
 .row-right {
   display: flex;
   flex-direction: column;
-  justify-content: center;
   gap: 10px;
   padding: 12px 14px 12px 24px;
   min-width: 0;
@@ -361,6 +359,7 @@ defineExpose({ clearSyncing })
   gap: 16px;
   flex-wrap: wrap;
   flex: 1;
+  margin-top: 5px;
 }
 
 .btn-sync {
