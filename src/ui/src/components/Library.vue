@@ -43,7 +43,7 @@ async function refreshPlaylist(playlistId) {
 function connectSyncEvents() {
   syncEventsSource = new EventSource('/playlists/sync-events')
 
-  syncEventsSource.onmessage = (e) => {
+  syncEventsSource.onmessage = async (e) => {
     try {
       const { event, playlist_id } = JSON.parse(e.data)
       if (event === 'sync_started') {
@@ -57,8 +57,16 @@ function connectSyncEvents() {
         if (rowRef) rowRef.clearSyncing()
         // Refresh row metadata (last_synced_at, item_count)
         refreshPlaylist(playlist_id)
-        // Invalidate item cache so next expand re-fetches
-        delete itemCache.value[playlist_id]
+        // If the panel is open, replace cache in place so the list updates live.
+        // If closed, delete so the next expand fetches fresh.
+        if (expandedId.value === playlist_id) {
+          try {
+            const res = await fetch(`/playlists/${playlist_id}/items`)
+            if (res.ok) itemCache.value[playlist_id] = await res.json()
+          } catch {}
+        } else {
+          delete itemCache.value[playlist_id]
+        }
       }
     } catch {}
   }
