@@ -147,27 +147,28 @@ defineExpose({ clearSyncing })
       <div class="row-left">
         <div class="row-title-line">
           <span class="playlist-name">{{ playlist.name }}</span>
-          <span v-if="syncing" class="sync-indicator">
-            <span class="spinner" />
-            <span class="syncing-label">
-              {{ syncInfo === null ? 'Syncing…' : (syncInfo === 0 ? 'No new items found' : `${syncInfo} new item${syncInfo === 1 ? '' : 's'} found`) }}
-            </span>
-          </span>
         </div>
-        <button v-if="!syncing" class="btn-sync" @click="triggerSync">Sync now</button>
-        <div v-else class="sync-placeholder" />
+        <button class="btn-sync" :style="{ visibility: syncing ? 'hidden' : 'visible' }" @click="triggerSync">Sync now</button>
       </div>
 
       <!-- col-3: meta + controls -->
       <div class="row-right">
-        <div class="row-meta-line">
-          <span class="meta-item">{{ playlist.item_count }} items</span>
-          <span class="meta-sep">·</span>
-          <span class="meta-item">Added {{ formatDate(playlist.added_at) }}</span>
-          <span class="meta-sep">·</span>
-          <span class="meta-item">
-            {{ playlist.last_synced_at ? `Synced ${formatDate(playlist.last_synced_at)}` : 'Never synced' }}
-          </span>
+        <div class="row-meta-slot">
+          <div class="row-meta-line" :style="{ visibility: syncing ? 'hidden' : 'visible' }">
+            <span class="meta-item">{{ playlist.item_count }} items</span>
+            <span class="meta-sep">·</span>
+            <span class="meta-item">Added {{ formatDate(playlist.added_at) }}</span>
+            <span class="meta-sep">·</span>
+            <span class="meta-item">
+              {{ playlist.last_synced_at ? `Synced ${formatDate(playlist.last_synced_at)}` : 'Never synced' }}
+            </span>
+          </div>
+          <div v-if="syncing" class="sync-indicator">
+            <span class="spinner" />
+            <span class="syncing-label">
+              {{ syncInfo === null ? 'Syncing…' : (syncInfo === 0 ? 'No new items found' : `${syncInfo} new item${syncInfo === 1 ? '' : 's'} found`) }}
+            </span>
+          </div>
         </div>
         <div class="controls-group">
           <label class="toggle-label">
@@ -312,6 +313,16 @@ defineExpose({ clearSyncing })
   gap: 8px;
 }
 
+.row-meta-slot {
+  position: relative;
+}
+
+.row-meta-slot .sync-indicator {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
 .row-meta-line {
   display: flex;
   align-items: center;
@@ -331,12 +342,16 @@ defineExpose({ clearSyncing })
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-shrink: 0;
+  min-width: 0;
 }
 
 .syncing-label {
   font-size: 12px;
   color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .meta-item {
@@ -377,11 +392,6 @@ defineExpose({ clearSyncing })
 
 .btn-sync:hover {
   background: rgba(124, 106, 247, 0.1);
-}
-
-.sync-placeholder {
-  width: 80px;
-  flex-shrink: 0;
 }
 
 .toggle-label {
