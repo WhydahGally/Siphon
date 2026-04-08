@@ -45,10 +45,13 @@ function connectSyncEvents() {
 
   syncEventsSource.onmessage = async (e) => {
     try {
-      const { event, playlist_id } = JSON.parse(e.data)
+      const { event, playlist_id, new_items } = JSON.parse(e.data)
       if (event === 'sync_started') {
         const p = playlists.value.find(pl => pl.id === playlist_id)
         if (p) p.is_syncing = true
+      } else if (event === 'sync_info') {
+        const rowRef = rowRefs.value[playlist_id]
+        if (rowRef) rowRef.setSyncInfo(new_items)
       } else if (event === 'sync_done') {
         const p = playlists.value.find(pl => pl.id === playlist_id)
         if (p) p.is_syncing = false

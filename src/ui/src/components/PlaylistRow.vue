@@ -16,6 +16,7 @@ const emit = defineEmits(['expand', 'collapse', 'deleted'])
 const autoRename = ref(props.playlist.auto_rename)
 const watched = ref(props.playlist.watched)
 const syncing = ref(props.playlist.is_syncing)
+const syncInfo = ref(null)  // null = no info yet, number = new items count
 
 // Interval inline edit
 const editingInterval = ref(false)
@@ -61,6 +62,12 @@ async function triggerSync() {
 // Clear syncing state from parent (called when sync_done received)
 function clearSyncing() {
   syncing.value = false
+  syncInfo.value = null
+}
+
+// Set new-items count from sync_info SSE event
+function setSyncInfo(count) {
+  syncInfo.value = count
 }
 
 // Toggles
@@ -125,7 +132,7 @@ function formatDate(iso) {
   return `${Math.floor(diffDays / 365)}y ago`
 }
 
-defineExpose({ clearSyncing })
+defineExpose({ clearSyncing, setSyncInfo })
 </script>
 
 <template>
@@ -149,7 +156,9 @@ defineExpose({ clearSyncing })
             <span class="playlist-name">{{ playlist.name }}</span>
             <span v-if="syncing" class="sync-indicator">
               <span class="spinner" />
-              <span class="syncing-label">Syncing…</span>
+              <span class="syncing-label">
+                {{ syncInfo === null ? 'Syncing…' : (syncInfo === 0 ? 'No new items found' : `${syncInfo} new item${syncInfo === 1 ? '' : 's'} found`) }}
+              </span>
             </span>
           </div>
           <div class="row-meta">

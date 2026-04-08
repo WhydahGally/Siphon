@@ -822,12 +822,12 @@ _sync_event_queues: List[asyncio.Queue] = []  # one per SSE subscriber
 _sync_loop: Optional[asyncio.AbstractEventLoop] = None
 
 
-def _broadcast_sync_event(event: str, playlist_id: str) -> None:
+def _broadcast_sync_event(event: str, playlist_id: str, **extra) -> None:
     """
     Broadcast a sync lifecycle event to all sync-events SSE subscribers.
     Safe to call from background threads: bridges via asyncio.call_soon_threadsafe.
     """
-    payload = json.dumps({"event": event, "playlist_id": playlist_id})
+    payload = json.dumps({"event": event, "playlist_id": playlist_id, **extra})
     loop = _sync_loop
     if loop is None:
         return
@@ -1579,6 +1579,7 @@ def _sync_parallel(
         if not entries:
             logger.warning("No entries found for playlist '%s' (url=%s)", playlist_name, url)
             registry.update_last_synced(playlist_id)
+            _broadcast_sync_event("sync_info", playlist_id, new_items=0)
             return
 
         to_download = _filter_entries(entries, playlist_id)
@@ -1586,8 +1587,10 @@ def _sync_parallel(
             registry.update_last_synced(playlist_id)
             total = registry.count_items(playlist_id)
             logger.info("'%s': Already up to date. (%d total)", playlist_name, total)
+            _broadcast_sync_event("sync_info", playlist_id, new_items=0)
             return
 
+        _broadcast_sync_event("sync_info", playlist_id, new_items=len(to_download))
         logger.info("%d new item(s) to download:", len(to_download))
         for idx, entry in enumerate(to_download, 1):
             logger.info("  %d. %s", idx, entry["title"])
