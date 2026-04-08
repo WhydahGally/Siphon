@@ -16,7 +16,7 @@ const emit = defineEmits(['expand', 'collapse', 'deleted'])
 const autoRename = ref(props.playlist.auto_rename)
 const watched = ref(props.playlist.watched)
 const syncing = ref(props.playlist.is_syncing)
-const syncInfo = ref(null)  // null = no info yet, number = new items count
+const syncInfo = computed(() => props.playlist.sync_info ?? null)
 
 // Interval inline edit
 const editingInterval = ref(false)
@@ -62,12 +62,6 @@ async function triggerSync() {
 // Clear syncing state from parent (called when sync_done received)
 function clearSyncing() {
   syncing.value = false
-  syncInfo.value = null
-}
-
-// Set new-items count from sync_info SSE event
-function setSyncInfo(count) {
-  syncInfo.value = count
 }
 
 // Toggles
@@ -132,7 +126,7 @@ function formatDate(iso) {
   return `${Math.floor(diffDays / 365)}y ago`
 }
 
-defineExpose({ clearSyncing, setSyncInfo })
+defineExpose({ clearSyncing })
 </script>
 
 <template>

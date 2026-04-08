@@ -50,8 +50,8 @@ function connectSyncEvents() {
         const p = playlists.value.find(pl => pl.id === playlist_id)
         if (p) p.is_syncing = true
       } else if (event === 'sync_info') {
-        const rowRef = rowRefs.value[playlist_id]
-        if (rowRef) rowRef.setSyncInfo(new_items)
+        const p = playlists.value.find(pl => pl.id === playlist_id)
+        if (p) p.sync_info = new_items
       } else if (event === 'sync_done') {
         const p = playlists.value.find(pl => pl.id === playlist_id)
         if (p) p.is_syncing = false

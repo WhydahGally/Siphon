@@ -818,6 +818,7 @@ _job_store: Optional[JobStore] = None
 # ---------------------------------------------------------------------------
 
 _syncing_playlists: set = set()           # playlist_ids currently syncing
+_sync_info: dict = {}                     # playlist_id -> new_items count while syncing
 _sync_event_queues: List[asyncio.Queue] = []  # one per SSE subscriber
 _sync_loop: Optional[asyncio.AbstractEventLoop] = None
 
@@ -1313,6 +1314,7 @@ def _playlist_to_dict(row) -> dict:
     d = dict(row)
     d["item_count"] = registry.count_items(row["id"])
     d["is_syncing"] = row["id"] in _syncing_playlists
+    d["sync_info"] = _sync_info.get(row["id"])
     return d
 
 
@@ -1579,6 +1581,7 @@ def _sync_parallel(
         if not entries:
             logger.warning("No entries found for playlist '%s' (url=%s)", playlist_name, url)
             registry.update_last_synced(playlist_id)
+            _sync_info[playlist_id] = 0
             _broadcast_sync_event("sync_info", playlist_id, new_items=0)
             return
 
@@ -1587,9 +1590,11 @@ def _sync_parallel(
             registry.update_last_synced(playlist_id)
             total = registry.count_items(playlist_id)
             logger.info("'%s': Already up to date. (%d total)", playlist_name, total)
+            _sync_info[playlist_id] = 0
             _broadcast_sync_event("sync_info", playlist_id, new_items=0)
             return
 
+        _sync_info[playlist_id] = len(to_download)
         _broadcast_sync_event("sync_info", playlist_id, new_items=len(to_download))
         logger.info("%d new item(s) to download:", len(to_download))
         for idx, entry in enumerate(to_download, 1):
@@ -1616,6 +1621,7 @@ def _sync_parallel(
                 logger.info("  \u2717 %s", f.title)
                 logger.info("    %s", f.error_message)
     finally:
+        _sync_info.pop(playlist_id, None)
         _syncing_playlists.discard(playlist_id)
         _broadcast_sync_event("sync_done", playlist_id)
 
