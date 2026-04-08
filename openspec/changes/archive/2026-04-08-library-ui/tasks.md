@@ -69,13 +69,13 @@
 
 ## 10. Verification
 
-- [ ] 10.1 Verify `siphon playlist-items <name>` prints correct output for a known playlist
-- [ ] 10.2 Verify `GET /playlists/{id}/items` returns correct items via `curl` or browser
-- [ ] 10.3 Verify `GET /playlists/sync-events` streams `sync_started` and `sync_done` events when a sync is triggered
-- [ ] 10.4 Verify `GET /playlists` includes `is_syncing: true` while a sync is running
-- [ ] 10.5 Verify Library tab renders all playlists and per-row controls work (toggle, interval edit, sync, delete)
-- [ ] 10.6 Verify expand/collapse accordion: only one panel open at a time; re-expand uses cache (check Network tab — no second request)
-- [ ] 10.7 Verify sync spinner appears immediately on Library mount if a sync is already in progress
-- [ ] 10.8 Verify Dashboard queue unchanged after triggering a sync from Library
-- [ ] 10.9 Verify ConfirmButton auto-reverts after 5s with no action
-- [ ] 10.10 Verify virtual scroll is smooth with a large playlist (100+ items)
+- [x] 10.1 Verify `siphon playlist-items <name>` prints correct output for a known playlist
+- [x] 10.2 Verify `GET /playlists/{id}/items` returns correct items via `curl` or browser
+- [x] 10.3 Verify `GET /playlists/sync-events` streams `sync_started` and `sync_done` events when a sync is triggered
+- [x] 10.4 Verify `GET /playlists` includes `is_syncing: true` while a sync is running
+- [x] 10.5 Verify Library tab renders all playlists and per-row controls work (toggle, interval edit, sync, delete)
+- [x] 10.6 Verify expand/collapse accordion: only one panel open at a time; re-expand uses cache (check Network tab — no second request)
+- [x] 10.7 Verify sync spinner appears immediately on Library mount if a sync is already in progress
+- [x] 10.8 Verify Dashboard queue unchanged after triggering a sync from Library
+- [x] 10.9 Verify ConfirmButton auto-reverts after 5s with no action
+- [x] 10.10 Verify virtual scroll is smooth with a large playlist (100+ items)

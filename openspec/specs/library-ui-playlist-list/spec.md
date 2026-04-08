@@ -80,14 +80,22 @@ Each playlist row SHALL display the current sync interval as human-readable text
 - **THEN** the input SHALL close and the original display text SHALL be restored with no API call made
 
 #### Scenario: Human-readable interval display (seconds to text)
-- **WHEN** `check_interval_secs` is less than 60
-- **THEN** the display SHALL read "every Xs" where X is the raw seconds value
-- **WHEN** `check_interval_secs` is between 60 and 3599 (inclusive)
-- **THEN** the display SHALL read "every Xm" where X is `floor(secs / 60)`
-- **WHEN** `check_interval_secs` is between 3600 and 86399 (inclusive)
-- **THEN** the display SHALL read "every Xh" where X is `floor(secs / 3600)`
-- **WHEN** `check_interval_secs` is 86400 or greater
-- **THEN** the display SHALL read "every Xd" where X is `floor(secs / 86400)`
+- **WHEN** `check_interval_secs` is 1
+- **THEN** the display SHALL read "Every second"
+- **WHEN** `check_interval_secs` is less than 60 and not 1
+- **THEN** the display SHALL read "Every X seconds" where X is the raw seconds value
+- **WHEN** `check_interval_secs` is exactly 60
+- **THEN** the display SHALL read "Every minute"
+- **WHEN** `check_interval_secs` is between 61 and 3599 (inclusive) and `floor(secs / 60)` is not 1
+- **THEN** the display SHALL read "Every X minutes" where X is `floor(secs / 60)`
+- **WHEN** `check_interval_secs` is between 3600 and 86399 (inclusive) and `floor(secs / 3600)` is 1
+- **THEN** the display SHALL read "Every hour"
+- **WHEN** `check_interval_secs` is between 3600 and 86399 (inclusive) and `floor(secs / 3600)` is not 1
+- **THEN** the display SHALL read "Every X hours" where X is `floor(secs / 3600)`
+- **WHEN** `check_interval_secs` is 86400 or greater and `floor(secs / 86400)` is 1
+- **THEN** the display SHALL read "Every day"
+- **WHEN** `check_interval_secs` is 86400 or greater and `floor(secs / 86400)` is not 1
+- **THEN** the display SHALL read "Every X days" where X is `floor(secs / 86400)`
 
 ---
 

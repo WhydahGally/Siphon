@@ -51,9 +51,9 @@ The Library tab is a stub. No playlist management UI exists.
 
 **Inline editing UX:** The interval is displayed as a clickable text. Clicking opens an `<input>` pre-populated with the current value in `DD:HH:MM:SS`. Enter or blur triggers `PATCH`; Escape reverts. A subtle underline or muted border signals editability without cluttering the row.
 
-### D4 — ConfirmButton.vue as a reusable slot-less component
+### D4 — ConfirmButton.vue as a reusable component with optional slot
 
-**Decision:** A self-contained `ConfirmButton.vue` accepts `label` (string) and `dangerLabel` (string, default "Confirm") props. Internal `confirming` ref drives the two-phase render. Emits `confirm` when the user clicks the confirm phase. Emits nothing on cancel. Guards: auto-reverts to initial state after 5s of inaction to prevent accidental stale confirms.
+**Decision:** A self-contained `ConfirmButton.vue` accepts `label` (string) and `dangerLabel` (string, default "Confirm") props. The trigger button also exposes a default slot — when populated the slot content replaces the label text, allowing callers to use icons (e.g. a trash SVG) instead of plain text. Internal `confirming` ref drives the two-phase render. Emits `confirm` when the user clicks the confirm phase. Emits nothing on cancel. Guards: auto-reverts to initial state after 5s of inaction to prevent accidental stale confirms.
 
 **Why not a modal:** The information needed for confirming a playlist delete is already visible on the row (the name). A modal adds a context switch and modal infrastructure (focus trap, overlay, portal) that doesn't exist yet. The split-button is sufficient and is self-contained.
 
