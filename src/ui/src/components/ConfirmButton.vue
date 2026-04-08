@@ -39,7 +39,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="confirm-button" :class="{ confirming }">
     <button v-if="!confirming" class="btn-default" @click="startConfirm">
-      {{ label }}
+      <slot>{{ label }}</slot>
     </button>
     <template v-else>
       <button class="btn-danger" @click="confirm">{{ dangerLabel }}</button>
@@ -61,11 +61,14 @@ onBeforeUnmount(() => {
   border: 1px solid var(--border);
   color: var(--text-muted);
   border-radius: var(--radius-sm);
-  padding: 5px 12px;
-  font-size: 13px;
+  padding: 7px 14px;
+  font-size: 15px;
   font-weight: 500;
   transition: color 0.15s, border-color 0.15s;
   white-space: nowrap;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .btn-default:hover {
@@ -74,9 +77,9 @@ onBeforeUnmount(() => {
 }
 
 .btn-danger {
-  background: none;
+  background: var(--error);
   border: 1px solid var(--error);
-  color: var(--error);
+  color: #fff;
   border-radius: var(--radius-sm);
   padding: 4px 10px;
   font-size: 12px;
@@ -86,7 +89,8 @@ onBeforeUnmount(() => {
 }
 
 .btn-danger:hover {
-  background: var(--error-bg);
+  background: #c94444;
+  border-color: #c94444;
 }
 
 .btn-cancel {
