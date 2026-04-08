@@ -318,6 +318,25 @@ def _build_options(fmt: str, quality: str = "best") -> DownloadOptions:
     return DownloadOptions(mode="video", quality=quality, video_format=fmt)
 
 
+def _normalise_youtube_url(url: str) -> str:
+    """
+    If the URL contains a YouTube list= param, return a clean playlist URL
+    (https://www.youtube.com/playlist?list=LIST_ID), discarding any v= param.
+    This avoids yt-dlp treating the URL as a single-video context and only
+    returning one entry instead of the full playlist.
+    """
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+    parsed = urlparse(url)
+    if parsed.netloc not in ("www.youtube.com", "youtube.com", "youtu.be"):
+        return url
+    qs = parse_qs(parsed.query, keep_blank_values=True)
+    list_id = qs.get("list", [None])[0]
+    if list_id and "v" in qs:
+        # Has both v= and list= — normalise to clean playlist URL
+        return f"https://www.youtube.com/playlist?list={list_id}"
+    return url
+
+
 def _fetch_playlist_info(url: str) -> dict:
     """Use yt-dlp to fetch playlist metadata without downloading."""
     ydl_opts = {
@@ -813,16 +832,42 @@ class PlaylistScheduler:
 _scheduler: Optional[PlaylistScheduler] = None
 _job_store: Optional[JobStore] = None
 
+# ---------------------------------------------------------------------------
+# Sync-events state (daemon-memory only, resets on restart)
+# ---------------------------------------------------------------------------
+
+_syncing_playlists: set = set()           # playlist_ids currently syncing
+_sync_info: dict = {}                     # playlist_id -> new_items count while syncing
+_sync_event_queues: List[asyncio.Queue] = []  # one per SSE subscriber
+_sync_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def _broadcast_sync_event(event: str, playlist_id: str, **extra) -> None:
+    """
+    Broadcast a sync lifecycle event to all sync-events SSE subscribers.
+    Safe to call from background threads: bridges via asyncio.call_soon_threadsafe.
+    """
+    payload = json.dumps({"event": event, "playlist_id": playlist_id, **extra})
+    loop = _sync_loop
+    if loop is None:
+        return
+    for q in list(_sync_event_queues):
+        try:
+            loop.call_soon_threadsafe(q.put_nowait, payload)
+        except Exception:
+            pass
+
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    global _scheduler, _job_store
+    global _scheduler, _job_store, _sync_loop
     data_dir = _resolve_data_dir()
     registry.init_db(data_dir)
     _scheduler = PlaylistScheduler()
     _scheduler.start()
     _job_store = JobStore()
     _job_store.set_loop(asyncio.get_event_loop())
+    _sync_loop = asyncio.get_event_loop()
     yield
     if _scheduler is not None:
         _scheduler.stop()
@@ -874,7 +919,7 @@ class JobCreate(BaseModel):
 
 @app.post("/playlists", status_code=201)
 def api_add_playlist(body: PlaylistCreate):
-    url = body.url
+    url = _normalise_youtube_url(body.url)
     output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
 
     logger.info("Fetching playlist info from YouTube…")
@@ -931,6 +976,32 @@ def api_list_playlists():
     return [_playlist_to_dict(p) for p in registry.list_playlists()]
 
 
+@app.get("/playlists/sync-events")
+async def api_sync_events():
+    """SSE stream that broadcasts sync_started / sync_done events."""
+    q: asyncio.Queue = asyncio.Queue()
+    _sync_event_queues.append(q)
+
+    async def event_generator():
+        try:
+            while True:
+                payload = await q.get()
+                yield f"data: {payload}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            try:
+                _sync_event_queues.remove(q)
+            except ValueError:
+                pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/playlists/{playlist_id}")
 def api_get_playlist(playlist_id: str):
     row = registry.get_playlist_by_id(playlist_id)
@@ -970,6 +1041,8 @@ def api_sync_playlist(playlist_id: str):
     row = registry.get_playlist_by_id(playlist_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Playlist not found.")
+    _syncing_playlists.add(playlist_id)
+    _broadcast_sync_event("sync_started", playlist_id)
     t = threading.Thread(
         target=_sync_parallel,
         kwargs=dict(
@@ -987,6 +1060,14 @@ def api_sync_playlist(playlist_id: str):
     )
     t.start()
     return {"status": "sync started", "playlist_id": playlist_id}
+
+
+@app.get("/playlists/{playlist_id}/items")
+def api_get_playlist_items(playlist_id: str):
+    row = registry.get_playlist_by_id(playlist_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Playlist not found.")
+    return registry.list_items_for_playlist(playlist_id)
 
 
 @app.post("/playlists/{playlist_id}/sync-failed", status_code=202)
@@ -1046,7 +1127,7 @@ def api_health():
 
 @app.post("/jobs", status_code=202)
 def api_create_job(body: JobCreate):
-    url = body.url
+    url = _normalise_youtube_url(body.url)
     output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
 
     try:
@@ -1100,7 +1181,18 @@ def api_create_job(body: JobCreate):
         raise HTTPException(status_code=503, detail="Job store not initialized.")
 
     if not entries:
-        raise HTTPException(status_code=422, detail="Library is up to date.")
+        if is_playlist and not existing_playlist:
+            # We just registered this playlist but found nothing to download — roll back
+            registry.delete_playlist(playlist_id)
+            if _scheduler is not None:
+                _scheduler.remove_playlist(playlist_id)
+            raise HTTPException(
+                status_code=422,
+                detail="No downloadable videos found in this playlist.\nIt may only contain unavailable videos.",
+            )
+        if is_playlist and existing_playlist:
+            raise HTTPException(status_code=422, detail="Playlist is already registered and up to date.")
+        raise HTTPException(status_code=422, detail="Nothing new to download.")
 
     try:
         job_id = _job_store.create_job(playlist_id, playlist_name, entries)
@@ -1251,6 +1343,8 @@ def _playlist_to_dict(row) -> dict:
         return {}
     d = dict(row)
     d["item_count"] = registry.count_items(row["id"])
+    d["is_syncing"] = row["id"] in _syncing_playlists
+    d["sync_info"] = _sync_info.get(row["id"])
     return d
 
 
@@ -1509,46 +1603,57 @@ def _sync_parallel(
     max_workers: int,
     auto_rename: bool = False,
 ) -> None:
-    options = _build_options(fmt, quality)
+    try:
+        options = _build_options(fmt, quality)
 
-    logger.info("Enumerating '%s'…", playlist_name)
-    entries = enumerate_entries(url)
-    if not entries:
-        logger.warning("No entries found for playlist '%s' (url=%s)", playlist_name, url)
-        registry.update_last_synced(playlist_id)
-        return
+        logger.info("Enumerating '%s'…", playlist_name)
+        entries = enumerate_entries(url)
+        if not entries:
+            logger.warning("No entries found for playlist '%s' (url=%s)", playlist_name, url)
+            registry.update_last_synced(playlist_id)
+            _sync_info[playlist_id] = 0
+            _broadcast_sync_event("sync_info", playlist_id, new_items=0)
+            return
 
-    to_download = _filter_entries(entries, playlist_id)
-    if not to_download:
+        to_download = _filter_entries(entries, playlist_id)
+        if not to_download:
+            registry.update_last_synced(playlist_id)
+            total = registry.count_items(playlist_id)
+            logger.info("'%s': Already up to date. (%d total)", playlist_name, total)
+            _sync_info[playlist_id] = 0
+            _broadcast_sync_event("sync_info", playlist_id, new_items=0)
+            return
+
+        _sync_info[playlist_id] = len(to_download)
+        _broadcast_sync_event("sync_info", playlist_id, new_items=len(to_download))
+        logger.info("%d new item(s) to download:", len(to_download))
+        for idx, entry in enumerate(to_download, 1):
+            logger.info("  %d. %s", idx, entry["title"])
+
+        successes, failures = download_parallel(
+            entries=to_download,
+            playlist_id=playlist_id,
+            playlist_name=playlist_name,
+            options=options,
+            output_dir=output_dir,
+            mb_user_agent=mb_user_agent,
+            max_workers=max_workers,
+            auto_rename=auto_rename,
+        )
+
         registry.update_last_synced(playlist_id)
         total = registry.count_items(playlist_id)
-        logger.info("'%s': Already up to date. (%d total)", playlist_name, total)
-        return
+        logger.info("'%s': %d new item(s) added. (%d total)", playlist_name, len(successes), total)
 
-    logger.info("%d new item(s) to download:", len(to_download))
-    for idx, entry in enumerate(to_download, 1):
-        logger.info("  %d. %s", idx, entry["title"])
-
-    successes, failures = download_parallel(
-        entries=to_download,
-        playlist_id=playlist_id,
-        playlist_name=playlist_name,
-        options=options,
-        output_dir=output_dir,
-        mb_user_agent=mb_user_agent,
-        max_workers=max_workers,
-        auto_rename=auto_rename,
-    )
-
-    registry.update_last_synced(playlist_id)
-    total = registry.count_items(playlist_id)
-    logger.info("'%s': %d new item(s) added. (%d total)", playlist_name, len(successes), total)
-
-    if failures:
-        logger.info("Failures (%d):", len(failures))
-        for f in failures:
-            logger.info("  \u2717 %s", f.title)
-            logger.info("    %s", f.error_message)
+        if failures:
+            logger.info("Failures (%d):", len(failures))
+            for f in failures:
+                logger.info("  \u2717 %s", f.title)
+                logger.info("    %s", f.error_message)
+    finally:
+        _sync_info.pop(playlist_id, None)
+        _syncing_playlists.discard(playlist_id)
+        _broadcast_sync_event("sync_done", playlist_id)
 
 
 def cmd_sync(args: argparse.Namespace) -> int:
@@ -1801,6 +1906,32 @@ def cmd_config_playlist(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# playlist-items
+# ---------------------------------------------------------------------------
+
+def cmd_playlist_items(args: argparse.Namespace) -> int:
+    playlists = _daemon_get("/playlists")
+    match = next((p for p in playlists if p["name"] == args.name), None)
+    if match is None:
+        logger.error("No playlist named '%s'. Run 'siphon list' to see registered playlists.", args.name)
+        return 1
+
+    items = _daemon_get(f"/playlists/{match['id']}/items")
+    if not items:
+        print(f"No items downloaded yet for '{args.name}'.")
+        return 0
+
+    print(f"{args.name} — {len(items)} item(s)")
+    print()
+    for item in items:
+        if item.get("renamed_to"):
+            print(f"  {item['yt_title']} → {item['renamed_to']}")
+        else:
+            print(f"  {item['yt_title']}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -1870,6 +2001,10 @@ def main() -> None:
                         help="Setting to read or write: interval, auto-rename, watched. Omit to show all.")
     p_cfgp.add_argument("value", nargs="?", default=None, help="Value to set. Omit to read the current value.")
 
+    # -- playlist-items --
+    p_pi = sub.add_parser("playlist-items", help="List all downloaded items for a playlist.")
+    p_pi.add_argument("name", help="Name of the playlist.")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -1881,6 +2016,7 @@ def main() -> None:
         "delete": cmd_delete,
         "config": cmd_config,
         "config-playlist": cmd_config_playlist,
+        "playlist-items": cmd_playlist_items,
     }
     sys.exit(dispatch[args.command](args))
 

@@ -65,6 +65,7 @@ const { toasts, dismiss } = useToast()
 .toast-msg {
   flex: 1;
   line-height: 1.4;
+  white-space: pre-line;
 }
 
 .toast-close {

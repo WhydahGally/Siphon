@@ -317,6 +317,22 @@ def count_items(playlist_id: str) -> int:
     return row[0] if row else 0
 
 
+def list_items_for_playlist(playlist_id: str) -> list:
+    """Return all item rows for a playlist ordered by downloaded_at ascending."""
+    conn = _get_conn()
+    rows = conn.execute(
+        """
+        SELECT video_id, playlist_id, yt_title, renamed_to, rename_tier,
+               uploader, channel_url, duration_secs, downloaded_at
+        FROM items
+        WHERE playlist_id = ?
+        ORDER BY downloaded_at ASC
+        """,
+        (playlist_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 # ---------------------------------------------------------------------------
 # Duplicate detection
 # ---------------------------------------------------------------------------

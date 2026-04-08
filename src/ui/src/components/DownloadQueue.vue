@@ -133,7 +133,7 @@ defineExpose({ addJob })
   <section v-if="jobs.length > 0" class="download-queue">
     <div class="queue-header">
       <div class="queue-title-row">
-        <h2 class="section-title">Downloads</h2>
+        <h2 class="section-title">Download queue</h2>
         <span v-if="activeJob" class="progress-summary">
           {{ activeJob.items.filter(i => i.state === 'done').length }} / {{ activeJob.items.length }} downloaded
           <span v-if="activeJob.items.filter(i => i.state === 'failed').length > 0" class="failed-count">&nbsp;· {{ activeJob.items.filter(i => i.state === 'failed').length }} failed</span>
@@ -152,7 +152,7 @@ defineExpose({ addJob })
           class="btn-outline"
           @click="clearList"
         >
-          Clear list
+          Clear queue
         </button>
       </div>
     </div>
