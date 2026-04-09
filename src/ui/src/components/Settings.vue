@@ -1,21 +1,587 @@
+<script setup>
+import { ref, computed, onMounted } from 'vue'
+import ConfirmButton from './ConfirmButton.vue'
+import { useToast } from '../composables/useToast.js'
+import { ddhhmmssToSecs, secsToDdhhmmss, secsToHuman } from '../utils/interval.js'
+
+const { showToast } = useToast()
+
+// ── State ──────────────────────────────────────────────────────────────────────
+const maxConcurrent = ref(5)
+const intervalSecs = ref(86400)
+const editingInterval = ref(false)
+const intervalInput = ref('')
+const autoRenameGlobal = ref(true)
+const mbUserAgent = ref('')
+const isDark = ref(true)
+const logLevel = ref('INFO')
+const version = ref({ siphon: '—', yt_dlp: '—' })
+
+const intervalDisplay = computed(() => secsToHuman(intervalSecs.value))
+
+// ── Load on mount ───────────────────────────────────────────────────────────────
+onMounted(async () => {
+  try {
+    const res = await fetch('/settings')
+    if (res.ok) {
+      const s = await res.json()
+      if (s.max_concurrent_downloads) maxConcurrent.value = parseInt(s.max_concurrent_downloads, 10) || 5
+      if (s.check_interval)           intervalSecs.value = parseInt(s.check_interval, 10) || 86400
+      if (s.auto_rename_default === 'false') autoRenameGlobal.value = false
+      if (s.mb_user_agent)            mbUserAgent.value = s.mb_user_agent
+      if (s.theme)                    isDark.value = s.theme !== 'light'
+      if (s.log_level)                logLevel.value = s.log_level
+    }
+  } catch { /* daemon not reachable */ }
+
+  try {
+    const res = await fetch('/version')
+    if (res.ok) version.value = await res.json()
+  } catch {}
+})
+
+// ── Helpers ─────────────────────────────────────────────────────────────────────
+async function saveSetting(key, value) {
+  try {
+    const res = await fetch(`/settings/${key}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: String(value) }),
+    })
+    if (res.ok) {
+      showToast('Saved.', 'success')
+    } else {
+      const data = await res.json().catch(() => ({}))
+      showToast(data.detail || 'Failed to save.', 'error')
+    }
+  } catch {
+    showToast('Could not reach the daemon.', 'error')
+  }
+}
+
+// ── Downloads ───────────────────────────────────────────────────────────────────
+function onMaxConcurrentChange() { saveSetting('max-concurrent-downloads', maxConcurrent.value) }
+
+function openIntervalEdit() {
+  intervalInput.value = secsToDdhhmmss(intervalSecs.value)
+  editingInterval.value = true
+}
+function saveInterval() {
+  const secs = ddhhmmssToSecs(intervalInput.value)
+  editingInterval.value = false
+  if (secs === null) return
+  intervalSecs.value = secs
+  saveSetting('interval', secs)
+}
+function cancelIntervalEdit() { editingInterval.value = false }
+
+function onAutoRenameToggle() {
+  autoRenameGlobal.value = !autoRenameGlobal.value
+  saveSetting('auto-rename', autoRenameGlobal.value ? 'true' : 'false')
+}
+
+// ── MusicBrainz ──────────────────────────────────────────────────────────────────
+function saveMbUserAgent() { saveSetting('mb-user-agent', mbUserAgent.value) }
+
+// ── Appearance ───────────────────────────────────────────────────────────────────
+function onThemeToggle() {
+  isDark.value = !isDark.value
+  if (!isDark.value) {
+    document.documentElement.dataset.theme = 'light'
+  } else {
+    delete document.documentElement.dataset.theme
+  }
+  saveSetting('theme', isDark.value ? 'dark' : 'light')
+}
+
+// ── About ─────────────────────────────────────────────────────────────────────────
+function onLogLevelChange() { saveSetting('log-level', logLevel.value) }
+
+// ── Danger zone ───────────────────────────────────────────────────────────────────
+async function handleDeleteAllPlaylists() {
+  try {
+    const res = await fetch('/playlists', { method: 'DELETE' })
+    if (res.status === 204 || res.ok) {
+      showToast('All playlists deleted.', 'success')
+    } else {
+      showToast('Failed to delete playlists.', 'error')
+    }
+  } catch { showToast('Could not reach the daemon.', 'error') }
+}
+
+async function handleFactoryReset() {
+  try {
+    const res = await fetch('/factory-reset', { method: 'POST' })
+    if (res.status === 204 || res.ok) {
+      showToast('Factory reset complete. Reloading…', 'success')
+      setTimeout(() => window.location.reload(), 1500)
+    } else {
+      showToast('Factory reset failed.', 'error')
+    }
+  } catch { showToast('Could not reach the daemon.', 'error') }
+}
+</script>
+
 <template>
-  <div class="stub-page">
-    <h2>Settings</h2>
-    <p>Coming soon.</p>
+  <div class="settings-page">
+    <h2 class="page-title">Settings</h2>
+
+    <!-- ── Downloads ──────────────────────────────────────────────────────── -->
+    <section class="settings-section">
+      <h3 class="section-heading">Downloads</h3>
+
+      <div class="setting-row">
+        <div class="setting-label-col">
+          <span class="setting-label">Max concurrent downloads</span>
+          <span class="setting-desc">How many files to download simultaneously.</span>
+        </div>
+        <div class="setting-control-col">
+          <select v-model="maxConcurrent" class="select" @change="onMaxConcurrentChange">
+            <option v-for="n in 10" :key="n" :value="n">{{ n }}</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label-col">
+          <span class="setting-label">Default sync interval</span>
+          <span class="setting-desc">
+            How often to check all watched playlists for new videos.
+            Per-playlist intervals override this.
+          </span>
+        </div>
+        <div class="setting-control-col interval-control">
+          <template v-if="!editingInterval">
+            <span class="interval-display" @click="openIntervalEdit">
+              {{ intervalDisplay }}
+              <svg class="pencil-icon" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+              </svg>
+            </span>
+          </template>
+          <template v-else>
+            <input
+              v-model="intervalInput"
+              class="interval-input"
+              placeholder="DD:HH:MM:SS"
+              autofocus
+              @keydown.enter="saveInterval"
+              @keydown.escape="cancelIntervalEdit"
+            />
+            <div class="interval-btns">
+              <button class="btn-save" @click="saveInterval">Save</button>
+              <button class="btn-cancel-sm" @click="cancelIntervalEdit">Cancel</button>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <div class="setting-row">
+        <div class="setting-label-col">
+          <span class="setting-label">Auto rename</span>
+          <span class="setting-desc">Default state of the Auto rename checkbox when adding a new download.</span>
+        </div>
+        <div class="setting-control-col">
+          <label class="toggle-switch">
+            <input type="checkbox" :checked="autoRenameGlobal" @change="onAutoRenameToggle" />
+            <span class="slider" />
+          </label>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── MusicBrainz ────────────────────────────────────────────────────── -->
+    <section class="settings-section">
+      <h3 class="section-heading">MusicBrainz</h3>
+
+      <div class="setting-row setting-row--block">
+        <div class="setting-label-col">
+          <span class="setting-label">User-Agent</span>
+          <span class="setting-desc">
+            Required for MusicBrainz metadata lookups during auto rename.
+            Format: <code>AppName/1.0 (you@example.com)</code><br />
+            <span class="setting-hint">Setting this will dismiss the ⚠ warning on Dashboard.</span>
+          </span>
+        </div>
+        <div class="setting-control-col mb-input-row">
+          <input
+            v-model="mbUserAgent"
+            class="text-input"
+            placeholder="Siphon/1.0 (you@example.com)"
+            @keydown.enter="saveMbUserAgent"
+          />
+          <button class="btn-primary-sm" @click="saveMbUserAgent">Save</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Appearance ─────────────────────────────────────────────────────── -->
+    <section class="settings-section">
+      <h3 class="section-heading">Appearance</h3>
+
+      <div class="setting-row">
+        <div class="setting-label-col">
+          <span class="setting-label">Theme</span>
+          <span class="setting-desc">Switch between dark and light colour scheme.</span>
+        </div>
+        <div class="setting-control-col theme-toggle-row">
+          <span class="theme-label" :class="{ active: isDark }">Dark</span>
+          <label class="toggle-switch">
+            <input type="checkbox" :checked="!isDark" @change="onThemeToggle" />
+            <span class="slider" />
+          </label>
+          <span class="theme-label" :class="{ active: !isDark }">Light</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── About ───────────────────────────────────────────────────────────── -->
+    <section class="settings-section">
+      <h3 class="section-heading">About</h3>
+
+      <div class="about-grid">
+        <span class="about-key">Siphon</span>
+        <span class="about-val">{{ version.siphon }}</span>
+
+        <span class="about-key">yt-dlp</span>
+        <span class="about-val">{{ version.yt_dlp }}</span>
+
+        <span class="about-key">Source</span>
+        <a
+          class="about-link"
+          href="https://github.com/WhydahGally/Siphon"
+          target="_blank"
+          rel="noopener noreferrer"
+        >github.com/WhydahGally/Siphon ↗</a>
+
+        <span class="about-key">Log level</span>
+        <select v-model="logLevel" class="select select--sm" @change="onLogLevelChange">
+          <option v-for="lvl in ['DEBUG', 'INFO', 'WARNING', 'ERROR']" :key="lvl" :value="lvl">{{ lvl }}</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- ── Danger Zone ─────────────────────────────────────────────────────── -->
+    <section class="settings-section settings-section--danger">
+      <h3 class="section-heading section-heading--danger">⚠ Danger Zone</h3>
+
+      <div class="danger-row">
+        <div class="danger-label-col">
+          <span class="setting-label">Delete All Playlists</span>
+          <span class="setting-desc">
+            Removes all playlists and their sync history.
+            Settings are kept. Your downloaded files are not affected.
+          </span>
+        </div>
+        <div class="danger-control-col">
+          <ConfirmButton
+            label="Delete All Playlists"
+            danger-label="Yes, delete all"
+            @confirm="handleDeleteAllPlaylists"
+          />
+        </div>
+      </div>
+
+      <div class="danger-row">
+        <div class="danger-label-col">
+          <span class="setting-label">Factory Reset</span>
+          <span class="setting-desc">
+            Wipes everything — playlists, history, and all settings.
+            Like a fresh install. Your downloaded files are not affected.
+          </span>
+        </div>
+        <div class="danger-control-col">
+          <ConfirmButton
+            label="Factory Reset"
+            danger-label="Yes, reset everything"
+            @confirm="handleFactoryReset"
+          />
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
-.stub-page {
+.settings-page {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 32px 0 64px;
 }
-.stub-page h2 {
+
+.page-title {
   font-size: 20px;
   font-weight: 600;
+  margin-bottom: 16px;
 }
-.stub-page p {
+
+/* ── Sections ───────────────────────────────────────────────────────────── */
+.settings-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.settings-section--danger {
+  border-color: rgba(224, 85, 85, 0.3);
+}
+
+.section-heading {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 14px 20px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.section-heading--danger {
+  color: var(--error);
+}
+
+/* ── Setting rows ──────────────────────────────────────────────────────── */
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.setting-row:last-child { border-bottom: none; }
+
+.setting-row--block {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.setting-label-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.setting-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.setting-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.setting-hint {
+  color: var(--warning);
+}
+
+code {
+  background: var(--surface-2);
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-size: 11px;
+  color: var(--text);
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+}
+
+.setting-control-col {
+  flex-shrink: 0;
+}
+
+/* ── Select ────────────────────────────────────────────────────────────── */
+.select {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 13px;
+  min-width: 80px;
+}
+
+.select--sm {
+  padding: 4px 8px;
+  font-size: 12px;
+  min-width: 0;
+}
+
+/* ── Toggle switch ─────────────────────────────────────────────────────── */
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.toggle-switch input { opacity: 0; width: 0; height: 0; }
+
+.slider {
+  position: absolute;
+  inset: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  transition: background 0.2s, border-color 0.2s;
+  cursor: pointer;
+}
+.slider::before {
+  content: '';
+  position: absolute;
+  width: 14px;
+  height: 14px;
+  left: 2px;
+  top: 2px;
+  background: var(--text-muted);
+  border-radius: 50%;
+  transition: transform 0.2s, background 0.2s;
+}
+.toggle-switch input:checked + .slider { background: var(--accent); border-color: var(--accent); }
+.toggle-switch input:checked + .slider::before { background: #fff; transform: translateX(16px); }
+
+/* ── Interval ──────────────────────────────────────────────────────────── */
+.interval-control {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.interval-display {
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.interval-display:hover { color: var(--text); }
+
+.pencil-icon { opacity: 0.5; flex-shrink: 0; }
+
+.interval-input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 5px 10px;
+  font-size: 13px;
+  width: 130px;
+}
+.interval-input:focus { outline: none; border-color: var(--accent); }
+
+.interval-btns {
+  display: flex;
+  gap: 6px;
+}
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+.btn-save, .btn-cancel-sm, .btn-primary-sm {
+  border-radius: var(--radius-sm);
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.btn-save, .btn-primary-sm {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-save:hover, .btn-primary-sm:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn-cancel-sm { background: none; color: var(--text-muted); }
+.btn-cancel-sm:hover { color: var(--text); border-color: var(--text-muted); }
+
+/* ── MusicBrainz input ──────────────────────────────────────────────────── */
+.mb-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.text-input {
+  flex: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  font-size: 13px;
+}
+.text-input:focus { outline: none; border-color: var(--accent); }
+.text-input::placeholder { color: var(--text-muted); }
+
+/* ── Theme toggle ────────────────────────────────────────────────────────── */
+.theme-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.theme-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  transition: color 0.15s;
+}
+.theme-label.active { color: var(--text); font-weight: 500; }
+
+/* ── About grid ──────────────────────────────────────────────────────────── */
+.about-grid {
+  display: grid;
+  grid-template-columns: 110px 1fr;
+  row-gap: 14px;
+  column-gap: 16px;
+  padding: 16px 20px;
+  align-items: center;
+}
+
+.about-key {
+  font-size: 13px;
   color: var(--text-muted);
 }
+
+.about-val {
+  font-size: 13px;
+  color: var(--text);
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+}
+
+.about-link {
+  font-size: 13px;
+  color: var(--accent);
+  text-decoration: none;
+}
+.about-link:hover { text-decoration: underline; }
+
+/* ── Danger zone rows ────────────────────────────────────────────────────── */
+.danger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.danger-row:last-child { border-bottom: none; }
+
+.danger-label-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+  min-width: 0;
+}
+
+.danger-control-col { flex-shrink: 0; }
 </style>
+
