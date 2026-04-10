@@ -2,11 +2,38 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+}
+
+html, body {
   scrollbar-width: none;
 }
 
-*::-webkit-scrollbar {
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
   display: none;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #2e2e3e transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: #2e2e3e;
+  border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #888899;
 }
 
 :root {
