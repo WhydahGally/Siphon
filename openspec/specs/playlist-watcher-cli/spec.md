@@ -28,10 +28,6 @@ The system SHALL expose a `siphon` command installed via `pyproject.toml` `[proj
 - **WHEN** `siphon add <url>` is called and the playlist ID is already in the registry
 - **THEN** the CLI SHALL print an error ("Playlist already registered. Use 'siphon sync' to fetch new items.") and exit with a non-zero code
 
-#### Scenario: URL is not a playlist
-- **WHEN** `siphon add <url>` is called with a single-video URL (no `list=` param)
-- **THEN** the CLI SHALL print an error ("Only playlist URLs are supported by siphon add.") and exit with a non-zero code
-
 ---
 
 ### Requirement: `siphon sync` subcommand

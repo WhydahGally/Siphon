@@ -29,21 +29,27 @@ CLI usage:
     siphon delete <name>
     siphon config-playlist <name> [<key> [<value>]]
 """
+import asyncio
+import json
 import os
 import sys
 import argparse
 import logging
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
+
+import importlib.metadata
 
 import requests as _requests
 import uvicorn
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from yt_dlp import YoutubeDL
 
@@ -78,6 +84,214 @@ class FailureRecord:
     error_message: str
 
 
+# ---------------------------------------------------------------------------
+# Job tracking (in-memory, session-scoped)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class JobItem:
+    video_id: str
+    yt_title: str
+    url: str
+    state: str  # "pending" | "downloading" | "done" | "failed"
+    renamed_to: Optional[str] = None
+    rename_tier: Optional[str] = None
+    error: Optional[str] = None
+    started_at: Optional[float] = None
+    finished_at: Optional[float] = None
+
+
+@dataclass
+class DownloadJob:
+    job_id: str
+    playlist_id: Optional[str]    # None for single-video jobs
+    playlist_name: Optional[str]
+    items: List[JobItem]
+    created_at: float
+
+    @property
+    def total(self) -> int:
+        return len(self.items)
+
+    @property
+    def done_count(self) -> int:
+        return sum(1 for i in self.items if i.state == "done")
+
+    @property
+    def failed_count(self) -> int:
+        return sum(1 for i in self.items if i.state == "failed")
+
+    def is_terminal(self) -> bool:
+        return bool(self.items) and all(i.state in ("done", "failed") for i in self.items)
+
+
+class JobStore:
+    """
+    Thread-safe in-memory store for DownloadJob instances.
+
+    Download worker threads mutate job state via update_item_state().
+    SSE subscribers (async) receive events via asyncio.Queue per job.
+    The event loop reference (set at startup) bridges the two worlds.
+    """
+
+    _MAX_JOBS = 50
+
+    def __init__(self) -> None:
+        self._jobs: Dict[str, DownloadJob] = {}
+        self._queues: Dict[str, List["asyncio.Queue[Optional[dict]]"]] = {}
+        self._lock = threading.Lock()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+    def set_loop(self, loop: asyncio.AbstractEventLoop) -> None:
+        self._loop = loop
+
+    def create_job(
+        self,
+        playlist_id: Optional[str],
+        playlist_name: Optional[str],
+        entries: List[dict],
+    ) -> str:
+        job_id = str(uuid.uuid4())
+        items = [
+            JobItem(video_id=e["id"], yt_title=e["title"], url=e["url"], state="pending")
+            for e in entries
+        ]
+        job = DownloadJob(
+            job_id=job_id,
+            playlist_id=playlist_id,
+            playlist_name=playlist_name,
+            items=items,
+            created_at=time.time(),
+        )
+        with self._lock:
+            # Atomic guard: reject if an active (non-terminal) job already exists
+            # for this playlist. Checked under the lock so concurrent requests
+            # can't both slip through before either job is created.
+            if playlist_id is not None:
+                for existing in self._jobs.values():
+                    if existing.playlist_id == playlist_id and not existing.is_terminal():
+                        raise ValueError("active_job_exists")
+            self._evict_if_needed()
+            self._jobs[job_id] = job
+            self._queues[job_id] = []
+        return job_id
+
+    def _evict_if_needed(self) -> None:
+        """Evict oldest terminal job if at capacity. Must be called under self._lock."""
+        if len(self._jobs) < self._MAX_JOBS:
+            return
+        terminal = [(jid, j) for jid, j in self._jobs.items() if j.is_terminal()]
+        if not terminal:
+            return
+        oldest_id = min(terminal, key=lambda t: t[1].created_at)[0]
+        del self._jobs[oldest_id]
+        self._queues.pop(oldest_id, None)
+
+    def get_job(self, job_id: str) -> Optional[DownloadJob]:
+        with self._lock:
+            return self._jobs.get(job_id)
+
+    def list_jobs(self) -> List[DownloadJob]:
+        with self._lock:
+            return sorted(self._jobs.values(), key=lambda j: j.created_at, reverse=True)
+
+    def delete_job(self, job_id: str) -> bool:
+        """Remove job. Raises ValueError if job has in-progress items."""
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return False
+            if not job.is_terminal():
+                raise ValueError("Job has in-progress items")
+            del self._jobs[job_id]
+            self._queues.pop(job_id, None)
+            return True
+
+    def update_item_state(
+        self,
+        job_id: str,
+        video_id: str,
+        state: str,
+        *,
+        renamed_to: Optional[str] = None,
+        rename_tier: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        event: Optional[dict] = None
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return
+            for item in job.items:
+                if item.video_id == video_id:
+                    item.state = state
+                    if state == "downloading":
+                        item.started_at = time.time()
+                    elif state in ("done", "failed"):
+                        item.finished_at = time.time()
+                    if renamed_to is not None:
+                        item.renamed_to = renamed_to
+                    if rename_tier is not None:
+                        item.rename_tier = rename_tier
+                    if error is not None:
+                        item.error = error
+                    event = {
+                        "job_id": job_id,
+                        "video_id": video_id,
+                        "state": state,
+                        "yt_title": item.yt_title,
+                        "renamed_to": item.renamed_to,
+                        "rename_tier": item.rename_tier,
+                        "error": item.error,
+                    }
+                    break
+        if event is not None:
+            self._notify(job_id, event)
+
+    def notify_terminal(self, job_id: str) -> None:
+        """Push sentinel None to signal all SSE subscribers that the job is done."""
+        self._notify(job_id, None)
+
+    def subscribe(self, job_id: str) -> "asyncio.Queue[Optional[dict]]":
+        q: asyncio.Queue = asyncio.Queue()
+        with self._lock:
+            if job_id in self._queues:
+                self._queues[job_id].append(q)
+        return q
+
+    def unsubscribe(self, job_id: str, q: "asyncio.Queue") -> None:
+        with self._lock:
+            if job_id in self._queues:
+                try:
+                    self._queues[job_id].remove(q)
+                except ValueError:
+                    pass
+
+    def reset_failed_items(self, job_id: str) -> List[dict]:
+        """Reset all failed items to pending. Returns entries list for re-dispatch."""
+        entries: List[dict] = []
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return entries
+            for item in job.items:
+                if item.state == "failed":
+                    item.state = "pending"
+                    item.error = None
+                    item.started_at = None
+                    item.finished_at = None
+                    entries.append({"id": item.video_id, "url": item.url, "title": item.yt_title})
+        return entries
+
+    def _notify(self, job_id: str, event: Optional[dict]) -> None:
+        if self._loop is None:
+            return
+        with self._lock:
+            queues = list(self._queues.get(job_id, []))
+        for q in queues:
+            asyncio.run_coroutine_threadsafe(q.put(event), self._loop)
+
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -104,6 +318,25 @@ def _build_options(fmt: str, quality: str = "best") -> DownloadOptions:
     if fmt in VALID_AUDIO_FORMATS:
         return DownloadOptions(mode="audio", audio_format=fmt)
     return DownloadOptions(mode="video", quality=quality, video_format=fmt)
+
+
+def _normalise_youtube_url(url: str) -> str:
+    """
+    If the URL contains a YouTube list= param, return a clean playlist URL
+    (https://www.youtube.com/playlist?list=LIST_ID), discarding any v= param.
+    This avoids yt-dlp treating the URL as a single-video context and only
+    returning one entry instead of the full playlist.
+    """
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
+    parsed = urlparse(url)
+    if parsed.netloc not in ("www.youtube.com", "youtube.com", "youtu.be"):
+        return url
+    qs = parse_qs(parsed.query, keep_blank_values=True)
+    list_id = qs.get("list", [None])[0]
+    if list_id and "v" in qs:
+        # Has both v= and list= — normalise to clean playlist URL
+        return f"https://www.youtube.com/playlist?list={list_id}"
+    return url
 
 
 def _fetch_playlist_info(url: str) -> dict:
@@ -209,8 +442,8 @@ def _fmt_size(path: str) -> str:
 
 def _download_worker(
     entry: dict,
-    playlist_id: str,
-    playlist_name: str,
+    playlist_id: Optional[str],
+    playlist_name: Optional[str],
     options: DownloadOptions,
     output_dir: str,
     mb_user_agent: Optional[str],
@@ -219,8 +452,9 @@ def _download_worker(
     """
     Worker function: download a single video entry.
 
-    On success: writes item to DB, clears any prior failure record, logs result.
-    On failure: writes failure to DB, logs error.
+    On success: writes item to DB (if playlist_id set), clears any prior failure
+    record, logs result.
+    On failure: writes failure to DB (if playlist_id set), logs error.
 
     Returns (ItemRecord, None) on success or (None, FailureRecord) on failure.
     """
@@ -228,15 +462,29 @@ def _download_worker(
     title = entry["title"]
     video_url = entry["url"]
 
-    # Items go into a per-playlist subfolder: <output_dir>/<playlist_name>/
-    safe_folder = sanitize_name(playlist_name) or playlist_id
-    item_output_dir = os.path.join(output_dir, safe_folder)
+    # Single-video jobs (playlist_id=None) go directly into output_dir.
+    # Playlist items go into a per-playlist subfolder: <output_dir>/<playlist_name>/
+    if playlist_id is None:
+        item_output_dir = output_dir
+    else:
+        folder_key = playlist_name or playlist_id or video_id
+        safe_folder = sanitize_name(folder_key) or video_id
+        item_output_dir = os.path.join(output_dir, safe_folder)
     os.makedirs(item_output_dir, exist_ok=True)
 
     item_result: list = []  # mutable container for on_item_complete callback
 
     def on_item(record: ItemRecord) -> None:
         item_result.append(record)
+
+    # Track whether yt-dlp actually finished downloading a file.
+    # yt-dlp uses ignoreerrors=True, so unavailable/private/deleted videos are
+    # silently skipped — no exception is raised, but no progress hook fires either.
+    _file_downloaded: list = []
+
+    def _track_progress(event: dict) -> None:
+        if event.get("status") == "finished":
+            _file_downloaded.append(True)
 
     start = time.monotonic()
 
@@ -245,14 +493,25 @@ def _download_worker(
             url=video_url,
             output_dir=item_output_dir,
             options=options,
-            progress_callback=None,
+            progress_callback=_track_progress,
             mb_user_agent=mb_user_agent,
             auto_rename=auto_rename,
             on_item_complete=on_item,
         )
     except Exception as exc:
         err = str(exc)
-        registry.insert_failed(video_id, playlist_id, title, video_url, err)
+        if playlist_id is not None:
+            registry.insert_failed(video_id, playlist_id, title, video_url, err)
+        logger.warning("  \u2717 %s \u2014 %s", title, err)
+        return None, FailureRecord(video_id=video_id, title=title, url=video_url, error_message=err)
+
+    # If no file was downloaded, yt-dlp silently skipped this entry (unavailable,
+    # private, deleted, or region-blocked).  Treat it as a failure so the UI
+    # shows a red row and Retry button instead of a false green check mark.
+    if not _file_downloaded:
+        err = "Video unavailable, private, or deleted"
+        if playlist_id is not None:
+            registry.insert_failed(video_id, playlist_id, title, video_url, err)
         logger.warning("  \u2717 %s \u2014 %s", title, err)
         return None, FailureRecord(video_id=video_id, title=title, url=video_url, error_message=err)
 
@@ -267,8 +526,9 @@ def _download_worker(
         channel_url=None,
         duration_secs=None,
     )
-    registry.insert_item(record, playlist_id)
-    registry.clear_failed(video_id, playlist_id)  # no-op if no prior failure
+    if playlist_id is not None:
+        registry.insert_item(record, playlist_id)
+        registry.clear_failed(video_id, playlist_id)  # no-op if no prior failure
 
     filename = record.renamed_to or title
 
@@ -570,17 +830,46 @@ class PlaylistScheduler:
 # FastAPI daemon
 # ===========================================================================
 
-# Module-level scheduler instance — set by cmd_watch during daemon startup.
+# Module-level singleton instances — set during daemon startup.
 _scheduler: Optional[PlaylistScheduler] = None
+_job_store: Optional[JobStore] = None
+
+# ---------------------------------------------------------------------------
+# Sync-events state (daemon-memory only, resets on restart)
+# ---------------------------------------------------------------------------
+
+_syncing_playlists: set = set()           # playlist_ids currently syncing
+_sync_info: dict = {}                     # playlist_id -> new_items count while syncing
+_sync_event_queues: List[asyncio.Queue] = []  # one per SSE subscriber
+_sync_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def _broadcast_sync_event(event: str, playlist_id: str, **extra) -> None:
+    """
+    Broadcast a sync lifecycle event to all sync-events SSE subscribers.
+    Safe to call from background threads: bridges via asyncio.call_soon_threadsafe.
+    """
+    payload = json.dumps({"event": event, "playlist_id": playlist_id, **extra})
+    loop = _sync_loop
+    if loop is None:
+        return
+    for q in list(_sync_event_queues):
+        try:
+            loop.call_soon_threadsafe(q.put_nowait, payload)
+        except Exception:
+            pass
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    global _scheduler
+    global _scheduler, _job_store, _sync_loop
     data_dir = _resolve_data_dir()
     registry.init_db(data_dir)
     _scheduler = PlaylistScheduler()
     _scheduler.start()
+    _job_store = JobStore()
+    _job_store.set_loop(asyncio.get_event_loop())
+    _sync_loop = asyncio.get_event_loop()
     yield
     if _scheduler is not None:
         _scheduler.stop()
@@ -616,16 +905,23 @@ class SettingWrite(BaseModel):
     value: str
 
 
+class JobCreate(BaseModel):
+    url: str
+    format: str = "mp3"
+    quality: str = "best"
+    output_dir: Optional[str] = None
+    auto_rename: bool = False
+    watched: bool = True
+    check_interval_secs: Optional[int] = None
+
+
 # ------------------------------------------------------------------
 # /playlists endpoints
 # ------------------------------------------------------------------
 
 @app.post("/playlists", status_code=201)
 def api_add_playlist(body: PlaylistCreate):
-    url = body.url
-    if "list=" not in url and "/playlist" not in url:
-        raise HTTPException(status_code=400, detail="Only playlist URLs are supported. URL must contain 'list='.")
-
+    url = _normalise_youtube_url(body.url)
     output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
 
     logger.info("Fetching playlist info from YouTube…")
@@ -682,12 +978,54 @@ def api_list_playlists():
     return [_playlist_to_dict(p) for p in registry.list_playlists()]
 
 
+@app.get("/playlists/sync-events")
+async def api_sync_events():
+    """SSE stream that broadcasts sync_started / sync_done events."""
+    q: asyncio.Queue = asyncio.Queue()
+    _sync_event_queues.append(q)
+
+    async def event_generator():
+        try:
+            while True:
+                payload = await q.get()
+                yield f"data: {payload}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            try:
+                _sync_event_queues.remove(q)
+            except ValueError:
+                pass
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/playlists/{playlist_id}")
 def api_get_playlist(playlist_id: str):
     row = registry.get_playlist_by_id(playlist_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Playlist not found.")
     return _playlist_to_dict(row)
+
+
+@app.delete("/playlists", status_code=204)
+def api_delete_all_playlists():
+    if _scheduler is not None:
+        for pid in list(registry.list_playlists()):
+            _scheduler.remove_playlist(pid["id"])
+    registry.delete_all_playlists()
+
+
+@app.post("/factory-reset", status_code=204)
+def api_factory_reset():
+    if _scheduler is not None:
+        for pid in list(registry.list_playlists()):
+            _scheduler.remove_playlist(pid["id"])
+    registry.factory_reset()
 
 
 @app.delete("/playlists/{playlist_id}", status_code=204)
@@ -721,6 +1059,8 @@ def api_sync_playlist(playlist_id: str):
     row = registry.get_playlist_by_id(playlist_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Playlist not found.")
+    _syncing_playlists.add(playlist_id)
+    _broadcast_sync_event("sync_started", playlist_id)
     t = threading.Thread(
         target=_sync_parallel,
         kwargs=dict(
@@ -738,6 +1078,14 @@ def api_sync_playlist(playlist_id: str):
     )
     t.start()
     return {"status": "sync started", "playlist_id": playlist_id}
+
+
+@app.get("/playlists/{playlist_id}/items")
+def api_get_playlist_items(playlist_id: str):
+    row = registry.get_playlist_by_id(playlist_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Playlist not found.")
+    return registry.list_items_for_playlist(playlist_id)
 
 
 @app.post("/playlists/{playlist_id}/sync-failed", status_code=202)
@@ -767,7 +1115,8 @@ def api_get_settings():
 
 @app.get("/settings/{key}")
 def api_get_setting(key: str):
-    value = registry.get_setting(key)
+    db_key = _KNOWN_KEYS[key][0] if key in _KNOWN_KEYS else key
+    value = registry.get_setting(db_key)
     return {"key": key, "value": value}
 
 
@@ -775,9 +1124,34 @@ def api_get_setting(key: str):
 def api_put_setting(key: str, body: SettingWrite):
     if key not in _KNOWN_KEYS:
         raise HTTPException(status_code=400, detail=f"Unknown key '{key}'. Known keys: {', '.join(_KNOWN_KEYS)}.")
+    if key in _ALLOWED_VALUES and body.value not in _ALLOWED_VALUES[key]:
+        allowed = ", ".join(sorted(_ALLOWED_VALUES[key]))
+        raise HTTPException(status_code=400, detail=f"Invalid value '{body.value}' for '{key}'. Allowed: {allowed}.")
     db_key = _KNOWN_KEYS[key][0]
     registry.set_setting(db_key, body.value)
     return {"key": key, "value": body.value}
+
+
+# ------------------------------------------------------------------
+# /version endpoint
+# ------------------------------------------------------------------
+
+@app.get("/version")
+def api_version():
+    try:
+        siphon_ver = importlib.metadata.version("siphon")
+    except importlib.metadata.PackageNotFoundError:
+        siphon_ver = "unknown"
+    import yt_dlp.version as _ytv
+    return {"siphon": siphon_ver, "yt_dlp": _ytv.__version__}
+
+
+@app.get("/info")
+def api_info():
+    return {
+        "download_dir": _resolve_output_dir(_DEFAULT_OUTPUT_DIR),
+        "db_dir": _resolve_data_dir(),
+    }
 
 
 # ------------------------------------------------------------------
@@ -791,6 +1165,219 @@ def api_health():
 
 
 # ------------------------------------------------------------------
+# /jobs endpoints
+# ------------------------------------------------------------------
+
+@app.post("/jobs", status_code=202)
+def api_create_job(body: JobCreate):
+    url = _normalise_youtube_url(body.url)
+    output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
+
+    try:
+        info = _fetch_playlist_info(url)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=f"Could not fetch URL info: {exc}")
+
+    if not info:
+        raise HTTPException(status_code=422, detail="Could not retrieve info for URL.")
+
+    is_playlist = info.get("_type") == "playlist" or bool(info.get("entries"))
+    existing_playlist = False
+
+    if is_playlist:
+        playlist_id = info.get("id") or info.get("playlist_id")
+        playlist_name = info.get("title") or info.get("playlist_title")
+        if not playlist_id or not playlist_name:
+            raise HTTPException(status_code=422, detail="Could not retrieve playlist ID or title from YouTube.")
+
+        try:
+            registry.add_playlist(
+                playlist_id,
+                playlist_name,
+                url,
+                fmt=body.format,
+                quality=body.quality,
+                output_dir=output_dir,
+                auto_rename=body.auto_rename,
+                watched=body.watched,
+                check_interval_secs=body.check_interval_secs,
+            )
+            existing_playlist = False
+        except ValueError:
+            existing_playlist = True  # already registered — sync new videos only
+
+        if body.watched and _scheduler is not None:
+            _scheduler.add_playlist(playlist_id)
+
+        entries = enumerate_entries(url)
+        entries = _filter_entries(entries, playlist_id)
+    else:
+        # Single video
+        video_id = info.get("id")
+        if not video_id:
+            raise HTTPException(status_code=422, detail="Could not retrieve video ID from URL.")
+        playlist_id = None
+        playlist_name = info.get("title") or video_id
+        entries = [{"id": video_id, "url": url, "title": info.get("title") or video_id}]
+
+    if _job_store is None:
+        raise HTTPException(status_code=503, detail="Job store not initialized.")
+
+    if not entries:
+        if is_playlist and not existing_playlist:
+            # We just registered this playlist but found nothing to download — roll back
+            registry.delete_playlist(playlist_id)
+            if _scheduler is not None:
+                _scheduler.remove_playlist(playlist_id)
+            raise HTTPException(
+                status_code=422,
+                detail="No downloadable videos found in this playlist.\nIt may only contain unavailable videos.",
+            )
+        if is_playlist and existing_playlist:
+            raise HTTPException(status_code=422, detail="Playlist is already registered and up to date.")
+        raise HTTPException(status_code=422, detail="Nothing new to download.")
+
+    try:
+        job_id = _job_store.create_job(playlist_id, playlist_name, entries)
+    except ValueError as exc:
+        if str(exc) == "active_job_exists":
+            raise HTTPException(
+                status_code=409,
+                detail="A download is already in progress for this playlist.",
+            )
+        raise
+    options = _build_options(body.format, body.quality)
+    mb_user_agent = registry.get_setting("mb_user_agent")
+
+    t = threading.Thread(
+        target=_run_download_job,
+        kwargs=dict(
+            job_id=job_id,
+            entries=entries,
+            playlist_id=playlist_id,
+            playlist_name=playlist_name,
+            options=options,
+            output_dir=output_dir,
+            mb_user_agent=mb_user_agent,
+            max_workers=_get_max_workers(),
+            auto_rename=body.auto_rename,
+        ),
+        daemon=True,
+    )
+    t.start()
+
+    return {"job_id": job_id, "existing_playlist": existing_playlist}
+
+
+@app.get("/jobs")
+def api_list_jobs():
+    if _job_store is None:
+        return []
+    return [_job_to_dict(j) for j in _job_store.list_jobs()]
+
+
+@app.get("/jobs/{job_id}/stream")
+async def api_stream_job(job_id: str):
+    if _job_store is None:
+        raise HTTPException(status_code=503, detail="Job store not initialized.")
+    job = _job_store.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+    async def event_generator():
+        # Subscribe first so we don't miss events that fire after we read state.
+        q = _job_store.subscribe(job_id)
+        try:
+            # Send catch-up snapshot for items already past pending.
+            current = _job_store.get_job(job_id)
+            if current:
+                for item in current.items:
+                    if item.state != "pending":
+                        data = json.dumps({
+                            "job_id": job_id,
+                            "video_id": item.video_id,
+                            "state": item.state,
+                            "yt_title": item.yt_title,
+                            "renamed_to": item.renamed_to,
+                            "error": item.error,
+                        })
+                        yield f"data: {data}\n\n"
+                if current.is_terminal():
+                    yield "event: done\ndata: {}\n\n"
+                    return
+
+            # Stream live events until terminal sentinel arrives.
+            while True:
+                event = await q.get()
+                if event is None:  # terminal sentinel
+                    yield "event: done\ndata: {}\n\n"
+                    return
+                yield f"data: {json.dumps(event)}\n\n"
+        finally:
+            _job_store.unsubscribe(job_id, q)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.delete("/jobs/{job_id}", status_code=204)
+def api_delete_job(job_id: str):
+    if _job_store is None:
+        raise HTTPException(status_code=503, detail="Job store not initialized.")
+    try:
+        found = _job_store.delete_job(job_id)
+    except ValueError:
+        raise HTTPException(status_code=409, detail="Job has items still in progress.")
+    if not found:
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+
+@app.post("/jobs/{job_id}/retry-failed")
+def api_retry_failed_job(job_id: str):
+    if _job_store is None:
+        raise HTTPException(status_code=503, detail="Job store not initialized.")
+    job = _job_store.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+    entries = _job_store.reset_failed_items(job_id)
+    if not entries:
+        return {"retried": 0}
+
+    row = registry.get_playlist_by_id(job.playlist_id) if job.playlist_id else None
+    fmt = row["format"] if row else "mp3"
+    quality = (row["quality"] or "best") if row else "best"
+    output_dir = (row["output_dir"] or _resolve_output_dir(_DEFAULT_OUTPUT_DIR)) if row else _resolve_output_dir(_DEFAULT_OUTPUT_DIR)
+    auto_rename = bool(row["auto_rename"]) if row else False
+    options = _build_options(fmt, quality)
+    mb_user_agent = registry.get_setting("mb_user_agent")
+
+    t = threading.Thread(
+        target=_run_download_job,
+        kwargs=dict(
+            job_id=job_id,
+            entries=entries,
+            playlist_id=job.playlist_id,
+            playlist_name=job.playlist_name,
+            options=options,
+            output_dir=output_dir,
+            mb_user_agent=mb_user_agent,
+            max_workers=_get_max_workers(),
+            auto_rename=auto_rename,
+        ),
+        daemon=True,
+    )
+    t.start()
+    return {"retried": len(entries)}
+
+
+# ------------------------------------------------------------------
 # Internal helpers for API handlers
 # ------------------------------------------------------------------
 
@@ -799,7 +1386,113 @@ def _playlist_to_dict(row) -> dict:
         return {}
     d = dict(row)
     d["item_count"] = registry.count_items(row["id"])
+    d["is_syncing"] = row["id"] in _syncing_playlists
+    d["sync_info"] = _sync_info.get(row["id"])
     return d
+
+
+def _job_to_dict(job: DownloadJob) -> dict:
+    return {
+        "job_id": job.job_id,
+        "playlist_id": job.playlist_id,
+        "playlist_name": job.playlist_name,
+        "created_at": job.created_at,
+        "total": job.total,
+        "done": job.done_count,
+        "failed": job.failed_count,
+        "items": [
+            {
+                "video_id": item.video_id,
+                "yt_title": item.yt_title,
+                "state": item.state,
+                "renamed_to": item.renamed_to,
+                "rename_tier": item.rename_tier,
+                "error": item.error,
+            }
+            for item in job.items
+        ],
+    }
+
+
+def _run_download_job(
+    job_id: str,
+    entries: List[dict],
+    playlist_id: Optional[str],
+    playlist_name: Optional[str],
+    options: DownloadOptions,
+    output_dir: str,
+    mb_user_agent: Optional[str],
+    max_workers: int,
+    auto_rename: bool = False,
+) -> None:
+    """
+    Background thread: drives per-item state transitions and downloads.
+
+    Wraps _download_worker to update job state (pending→downloading→done/failed)
+    in the JobStore, which fans out SSE events to browser subscribers.
+    """
+    if not entries:
+        if _job_store is not None:
+            _job_store.notify_terminal(job_id)
+        return
+
+    # Guard ffmpeg before dispatching threads.
+    ffmpeg_needed = (
+        (options.mode == "audio" and options.audio_format == "mp3")
+        or (options.mode == "video" and options.video_format in {"mp4", "mkv"})
+    )
+    if ffmpeg_needed and not check_ffmpeg():
+        for entry in entries:
+            if _job_store is not None:
+                _job_store.update_item_state(
+                    job_id, entry["id"], "failed",
+                    error="ffmpeg not found on PATH — install it to enable this format.",
+                )
+        if _job_store is not None:
+            _job_store.notify_terminal(job_id)
+        return
+
+    def run_item(entry: dict) -> Tuple[Optional[ItemRecord], Optional[FailureRecord]]:
+        if _job_store is not None:
+            _job_store.update_item_state(job_id, entry["id"], "downloading")
+        record, failure = _download_worker(
+            entry=entry,
+            playlist_id=playlist_id,
+            playlist_name=playlist_name,
+            options=options,
+            output_dir=output_dir,
+            mb_user_agent=mb_user_agent,
+            auto_rename=auto_rename,
+        )
+        if failure is not None:
+            if _job_store is not None:
+                _job_store.update_item_state(
+                    job_id, entry["id"], "failed", error=failure.error_message,
+                )
+        else:
+            renamed_to = record.renamed_to if record else None
+            rename_tier = record.rename_tier if record else None
+            if _job_store is not None:
+                _job_store.update_item_state(
+                    job_id, entry["id"], "done", renamed_to=renamed_to, rename_tier=rename_tier,
+                )
+        return record, failure
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(run_item, entry): entry for entry in entries}
+        for fut in as_completed(futures):
+            try:
+                fut.result()
+            except Exception as exc:
+                entry = futures[fut]
+                if _job_store is not None:
+                    _job_store.update_item_state(job_id, entry["id"], "failed", error=str(exc))
+
+    if playlist_id is not None:
+        registry.update_last_synced(playlist_id)
+
+    if _job_store is not None:
+        _job_store.notify_terminal(job_id)
 
 
 def _run_sync_failed_for_playlist(row) -> None:
@@ -824,6 +1517,17 @@ def _run_sync_failed_for_playlist(row) -> None:
         auto_rename=bool(row["auto_rename"]),
     )
     logger.info("'%s': %d recovered, %d still failing.", pname, len(successes), len(new_failures))
+
+
+# ---------------------------------------------------------------------------
+# Static file serving (production only)
+# API routes above are registered first; this mount must stay last so it never
+# shadows an API path.
+# ---------------------------------------------------------------------------
+
+_UI_DIST = os.path.join(os.path.dirname(__file__), "..", "ui", "dist")
+if os.path.isdir(_UI_DIST):
+    app.mount("/", StaticFiles(directory=_UI_DIST, html=True), name="ui")
 
 
 # ===========================================================================
@@ -942,46 +1646,57 @@ def _sync_parallel(
     max_workers: int,
     auto_rename: bool = False,
 ) -> None:
-    options = _build_options(fmt, quality)
+    try:
+        options = _build_options(fmt, quality)
 
-    logger.info("Enumerating '%s'…", playlist_name)
-    entries = enumerate_entries(url)
-    if not entries:
-        logger.warning("No entries found for playlist '%s' (url=%s)", playlist_name, url)
-        registry.update_last_synced(playlist_id)
-        return
+        logger.info("Enumerating '%s'…", playlist_name)
+        entries = enumerate_entries(url)
+        if not entries:
+            logger.warning("No entries found for playlist '%s' (url=%s)", playlist_name, url)
+            registry.update_last_synced(playlist_id)
+            _sync_info[playlist_id] = 0
+            _broadcast_sync_event("sync_info", playlist_id, new_items=0)
+            return
 
-    to_download = _filter_entries(entries, playlist_id)
-    if not to_download:
+        to_download = _filter_entries(entries, playlist_id)
+        if not to_download:
+            registry.update_last_synced(playlist_id)
+            total = registry.count_items(playlist_id)
+            logger.info("'%s': Already up to date. (%d total)", playlist_name, total)
+            _sync_info[playlist_id] = 0
+            _broadcast_sync_event("sync_info", playlist_id, new_items=0)
+            return
+
+        _sync_info[playlist_id] = len(to_download)
+        _broadcast_sync_event("sync_info", playlist_id, new_items=len(to_download))
+        logger.info("%d new item(s) to download:", len(to_download))
+        for idx, entry in enumerate(to_download, 1):
+            logger.info("  %d. %s", idx, entry["title"])
+
+        successes, failures = download_parallel(
+            entries=to_download,
+            playlist_id=playlist_id,
+            playlist_name=playlist_name,
+            options=options,
+            output_dir=output_dir,
+            mb_user_agent=mb_user_agent,
+            max_workers=max_workers,
+            auto_rename=auto_rename,
+        )
+
         registry.update_last_synced(playlist_id)
         total = registry.count_items(playlist_id)
-        logger.info("'%s': Already up to date. (%d total)", playlist_name, total)
-        return
+        logger.info("'%s': %d new item(s) added. (%d total)", playlist_name, len(successes), total)
 
-    logger.info("%d new item(s) to download:", len(to_download))
-    for idx, entry in enumerate(to_download, 1):
-        logger.info("  %d. %s", idx, entry["title"])
-
-    successes, failures = download_parallel(
-        entries=to_download,
-        playlist_id=playlist_id,
-        playlist_name=playlist_name,
-        options=options,
-        output_dir=output_dir,
-        mb_user_agent=mb_user_agent,
-        max_workers=max_workers,
-        auto_rename=auto_rename,
-    )
-
-    registry.update_last_synced(playlist_id)
-    total = registry.count_items(playlist_id)
-    logger.info("'%s': %d new item(s) added. (%d total)", playlist_name, len(successes), total)
-
-    if failures:
-        logger.info("Failures (%d):", len(failures))
-        for f in failures:
-            logger.info("  \u2717 %s", f.title)
-            logger.info("    %s", f.error_message)
+        if failures:
+            logger.info("Failures (%d):", len(failures))
+            for f in failures:
+                logger.info("  \u2717 %s", f.title)
+                logger.info("    %s", f.error_message)
+    finally:
+        _sync_info.pop(playlist_id, None)
+        _syncing_playlists.discard(playlist_id)
+        _broadcast_sync_event("sync_done", playlist_id)
 
 
 def cmd_sync(args: argparse.Namespace) -> int:
@@ -1066,6 +1781,42 @@ def cmd_delete(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# delete-all-playlists
+# ---------------------------------------------------------------------------
+
+def cmd_delete_all_playlists(args: argparse.Namespace) -> int:
+    playlists = _daemon_get("/playlists")
+    count = len(playlists)
+    print(f"This will remove all {count} playlist(s) and their sync history from the registry.")
+    print("Your downloaded files will NOT be deleted.")
+    print()
+    answer = input("Confirm? [y/N] ").strip().lower()
+    if answer != "y":
+        print("Cancelled. No changes made.")
+        return 0
+    _daemon_delete("/playlists")
+    print("All playlists removed.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# factory-reset
+# ---------------------------------------------------------------------------
+
+def cmd_factory_reset(args: argparse.Namespace) -> int:
+    print("This will wipe ALL playlists, sync history, and settings.")
+    print("Your downloaded files will NOT be deleted.")
+    print()
+    answer = input("Confirm factory reset? [y/N] ").strip().lower()
+    if answer != "y":
+        print("Cancelled. No changes made.")
+        return 0
+    _daemon_post("/factory-reset", expect_status=204)
+    print("Factory reset complete.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # sync-failed
 # ---------------------------------------------------------------------------
 
@@ -1114,9 +1865,25 @@ _KNOWN_KEYS = {
         "Default sync interval in seconds for all watched playlists (e.g. 3600 = hourly, "
         "86400 = daily). Per-playlist overrides take precedence. Default: 86400.",
     ),
+    "auto-rename": (
+        "auto_rename_default",
+        "Global default for the auto-rename toggle when adding a new download. "
+        "Accepted values: true, false. Default: true.",
+    ),
+    "theme": (
+        "theme",
+        "UI colour theme. Accepted values: dark, light. Default: dark.",
+    ),
 }
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
+
+# Keys whose values must be one of a fixed set.
+_ALLOWED_VALUES: dict = {
+    "log-level": {"DEBUG", "INFO", "WARNING", "ERROR"},
+    "auto-rename": {"true", "false"},
+    "theme": {"dark", "light"},
+}
 
 _PLAYLIST_KNOWN_KEYS = {"interval", "auto-rename", "watched"}
 
@@ -1234,6 +2001,32 @@ def cmd_config_playlist(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# playlist-items
+# ---------------------------------------------------------------------------
+
+def cmd_playlist_items(args: argparse.Namespace) -> int:
+    playlists = _daemon_get("/playlists")
+    match = next((p for p in playlists if p["name"] == args.name), None)
+    if match is None:
+        logger.error("No playlist named '%s'. Run 'siphon list' to see registered playlists.", args.name)
+        return 1
+
+    items = _daemon_get(f"/playlists/{match['id']}/items")
+    if not items:
+        print(f"No items downloaded yet for '{args.name}'.")
+        return 0
+
+    print(f"{args.name} — {len(items)} item(s)")
+    print()
+    for item in items:
+        if item.get("renamed_to"):
+            print(f"  {item['yt_title']} → {item['renamed_to']}")
+        else:
+            print(f"  {item['yt_title']}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
 
@@ -1291,6 +2084,12 @@ def main() -> None:
     p_del = sub.add_parser("delete", help="Remove a playlist from the registry.")
     p_del.add_argument("name", help="Name of the playlist to delete.")
 
+    # -- delete-all-playlists --
+    sub.add_parser("delete-all-playlists", help="Remove all playlists and sync history from the registry.")
+
+    # -- factory-reset --
+    sub.add_parser("factory-reset", help="Wipe all playlists, history, and settings. Downloaded files are not affected.")
+
     # -- config --
     p_cfg = sub.add_parser("config", help="Get or set a global configuration value.")
     p_cfg.add_argument("key", choices=list(_KNOWN_KEYS), help="Config key to read or write.")
@@ -1303,6 +2102,10 @@ def main() -> None:
                         help="Setting to read or write: interval, auto-rename, watched. Omit to show all.")
     p_cfgp.add_argument("value", nargs="?", default=None, help="Value to set. Omit to read the current value.")
 
+    # -- playlist-items --
+    p_pi = sub.add_parser("playlist-items", help="List all downloaded items for a playlist.")
+    p_pi.add_argument("name", help="Name of the playlist.")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -1312,8 +2115,11 @@ def main() -> None:
         "sync-failed": cmd_sync_failed,
         "list": cmd_list,
         "delete": cmd_delete,
+        "delete-all-playlists": cmd_delete_all_playlists,
+        "factory-reset": cmd_factory_reset,
         "config": cmd_config,
         "config-playlist": cmd_config_playlist,
+        "playlist-items": cmd_playlist_items,
     }
     sys.exit(dispatch[args.command](args))
 

@@ -74,4 +74,4 @@ See the `scheduler` change for implementation details. Summary:
 - No external dependencies beyond the stdlib.
 
 
-Dev note: We may want to consider atom feed within the scheduler since that would be cheaper on resources (atm feed only fetches ~15 videos while current implementation fetches the entire playlist and does a DB calculation). We may need to bring back yt-dlp's archive file feature for quicker comparison. Priority P4.
+Dev's note: We may want to consider atom feed within the scheduler since that would be cheaper on resources (atm feed only fetches ~15 videos while current implementation fetches the entire playlist and does a DB calculation). We may need to bring back yt-dlp's archive file feature for quicker comparison. Priority P4.

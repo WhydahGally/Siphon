@@ -317,6 +317,22 @@ def count_items(playlist_id: str) -> int:
     return row[0] if row else 0
 
 
+def list_items_for_playlist(playlist_id: str) -> list:
+    """Return all item rows for a playlist ordered by downloaded_at ascending."""
+    conn = _get_conn()
+    rows = conn.execute(
+        """
+        SELECT video_id, playlist_id, yt_title, renamed_to, rename_tier,
+               uploader, channel_url, duration_secs, downloaded_at
+        FROM items
+        WHERE playlist_id = ?
+        ORDER BY downloaded_at ASC
+        """,
+        (playlist_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 # ---------------------------------------------------------------------------
 # Duplicate detection
 # ---------------------------------------------------------------------------
@@ -361,6 +377,24 @@ def get_setting(key: str) -> Optional[str]:
         "SELECT value FROM settings WHERE key = ?", (key,)
     ).fetchone()
     return row[0] if row else None
+
+
+def delete_all_playlists() -> None:
+    """Remove all playlists and their associated data. Settings are preserved."""
+    conn = _get_conn()
+    with conn:
+        conn.execute("DELETE FROM items")
+        conn.execute("DELETE FROM failed_downloads")
+        conn.execute("DELETE FROM ignored_items")
+        conn.execute("DELETE FROM playlists")
+
+
+def factory_reset() -> None:
+    """Wipe all data including settings. Leaves an empty, initialised database."""
+    delete_all_playlists()
+    conn = _get_conn()
+    with conn:
+        conn.execute("DELETE FROM settings")
 
 
 def get_downloaded_ids(playlist_id: str) -> set:
