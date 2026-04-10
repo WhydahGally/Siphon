@@ -1,15 +1,18 @@
 <script setup>
-import { ref, computed, onMounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useToast } from '../composables/useToast.js'
 import { ddhhmmssToSecs, secsToDdhhmmss, secsToHuman } from '../utils/interval.js'
+import { useSettings } from '../composables/useSettings.js'
 
 const emit = defineEmits(['job-created'])
 const { showToast } = useToast()
+const { autoRename: globalAutoRename, loaded: settingsLoaded } = useSettings()
 
 const url = ref('')
 const format = ref('mp3')
 const quality = ref('best')
-const autoRename = ref(true)
+const autoRename = ref(globalAutoRename.value)
+watch(settingsLoaded, () => { autoRename.value = globalAutoRename.value }, { once: true })
 const autoSync = ref(true)
 const interval = ref(86400)
 const editingInterval = ref(false)
@@ -65,13 +68,6 @@ onMounted(async () => {
     mbUserAgentMissing.value = !data.value
   } catch {
     // daemon not reachable yet — don't crash
-  }
-  try {
-    const res = await fetch('/settings/auto-rename')
-    const data = await res.json()
-    if (data.value === 'false') autoRename.value = false
-  } catch {
-    // daemon not reachable — keep default true
   }
 })
 
@@ -174,7 +170,7 @@ async function handleDownload() {
     <!-- Toggles row -->
     <div class="toggles-row">
       <!-- Auto rename -->
-      <label class="toggle-label">
+      <label v-if="settingsLoaded" class="toggle-label">
         <span class="toggle-switch">
           <input v-model="autoRename" type="checkbox" :disabled="loading" />
           <span class="slider" />

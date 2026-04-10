@@ -3,6 +3,7 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import ConfirmButton from './ConfirmButton.vue'
 import { useToast } from '../composables/useToast.js'
 import { ddhhmmssToSecs, secsToDdhhmmss, secsToHuman } from '../utils/interval.js'
+import { useSettings } from '../composables/useSettings.js'
 
 const { showToast } = useToast()
 
@@ -11,7 +12,7 @@ const maxConcurrent = ref(5)
 const intervalSecs = ref(86400)
 const editingInterval = ref(false)
 const intervalInput = ref('')
-const autoRenameGlobal = ref(true)
+const { autoRename: autoRenameGlobal, loaded: settingsLoaded } = useSettings()
 const mbUserAgent = ref('')
 const isDark = ref(true)
 const logLevel = ref('INFO')
@@ -205,7 +206,7 @@ async function handleFactoryReset() {
           <span class="setting-desc">Default state of the <code>Auto rename</code> checkbox when adding a new download.</span>
         </div>
         <div class="setting-control-col">
-          <label class="toggle-switch">
+          <label v-if="settingsLoaded" class="toggle-switch">
             <input type="checkbox" :checked="autoRenameGlobal" @change="onAutoRenameToggle" />
             <span class="slider" />
           </label>
