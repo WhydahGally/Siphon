@@ -206,9 +206,6 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Git
-.gitignore
-
 # Siphon runtime data (DB + yt-dlp archives)
 .data/
 
