@@ -10,7 +10,8 @@
 
 - [x] 3.1 Wrap job blocks in a `.queue-body` div with `flex: 1; min-height: 0; overflow-y: auto` in `DownloadQueue.vue`
 - [x] 3.2 Cap `.dashboard` to `max-height: calc(100vh - 56px)` and make `.download-queue` flex column so the queue fills remaining space
-- [x] 3.3 Hide all browser scrollbars globally via `scrollbar-width: none` and `::-webkit-scrollbar { display: none }` in `style.css`
+- [x] 3.3 Hide only the page-level browser scrollbar via `scrollbar-width: none` and `::-webkit-scrollbar { display: none }` scoped to `html, body` in `style.css`; internal component scrollbars remain visible
+- [x] 3.4 Style all internal scrollbars in `style.css`: 6px width, transparent track, rounded pill thumb using `--border` at rest and `--text-muted` on hover; cover Firefox with `scrollbar-width: thin` and `scrollbar-color`
 
 ## 4. Failed downloads sorting
 

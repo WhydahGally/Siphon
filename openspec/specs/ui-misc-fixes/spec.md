@@ -27,7 +27,7 @@ The `.toggles-row` in `DownloadForm` SHALL maintain a fixed minimum height at al
 - **THEN** the Auto sync toggle and interval control appear without changing the row height or moving the Download button
 
 ### Requirement: Download queue is scrollable and does not cause page-level scrolling
-The download queue section SHALL scroll internally when its content exceeds the available viewport height. The main page SHALL NOT show a scrollbar regardless of how many items are in the queue. Browser scrollbars SHALL be hidden globally across all scrollable regions.
+The download queue section SHALL scroll internally when its content exceeds the available viewport height. The main page SHALL NOT show a scrollbar regardless of how many items are in the queue. Only the browser's page-level scrollbar SHALL be hidden; scrollbars within internal scrollable regions (e.g. download queue, playlist item viewer) SHALL remain visible.
 
 #### Scenario: Many items in queue
 - **WHEN** the queue contains more items than fit in the viewport
@@ -36,6 +36,17 @@ The download queue section SHALL scroll internally when its content exceeds the 
 #### Scenario: Dashboard height
 - **WHEN** the dashboard is rendered
 - **THEN** its total height SHALL NOT exceed `calc(100vh - 56px)` (viewport minus navbar)
+
+### Requirement: Internal scrollbars use a custom minimal style
+All internal scrollable regions SHALL render a slim, styled scrollbar that matches the app's dark colour palette. The scrollbar track SHALL have a transparent background with no visible border. The scrollbar thumb SHALL be rounded (pill shape), use the app border colour at rest, and lighten to the muted text colour on hover. The scrollbar width SHALL be 6px. Firefox SHALL be covered via `scrollbar-width: thin` and `scrollbar-color`.
+
+#### Scenario: Scrollable region at rest
+- **WHEN** a scrollable component (e.g. download queue, playlist item viewer) is rendered
+- **THEN** the scrollbar thumb is a 6px rounded pill using `--border` colour with a transparent track and no visible border
+
+#### Scenario: Scrollbar hovered
+- **WHEN** the user hovers over the scrollbar thumb
+- **THEN** the thumb lightens to `--text-muted` colour to indicate interactivity
 
 ### Requirement: Failed download items appear at the top of the queue
 Within each job block, items SHALL be sorted so that `failed` items appear first, followed by `downloading`, `pending`, and `done`.
