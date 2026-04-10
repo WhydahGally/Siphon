@@ -126,6 +126,15 @@ function formatDate(iso) {
   return `${Math.floor(diffDays / 365)}y ago`
 }
 
+function formatSyncedDate(iso) {
+  if (!iso) return 'never synced'
+  const diffMs = new Date() - new Date(iso)
+  if (diffMs < 60000) return 'less than a minute ago'
+  if (diffMs < 3600000) return `${Math.floor(diffMs / 60000)}m ago`
+  if (diffMs < 86400000) return `${Math.floor(diffMs / 3600000)}h ago`
+  return formatDate(iso)
+}
+
 defineExpose({ clearSyncing })
 </script>
 
@@ -157,10 +166,10 @@ defineExpose({ clearSyncing })
           <div class="row-meta-line" :style="{ visibility: syncing ? 'hidden' : 'visible' }">
             <span class="meta-item">{{ playlist.item_count }} items</span>
             <span class="meta-sep">·</span>
-            <span class="meta-item">Added {{ formatDate(playlist.added_at) }}</span>
+            <span class="meta-item">Added {{ formatSyncedDate(playlist.added_at) }}</span>
             <span class="meta-sep">·</span>
             <span class="meta-item">
-              {{ playlist.last_synced_at ? `Synced ${formatDate(playlist.last_synced_at)}` : 'Never synced' }}
+              {{ playlist.last_synced_at ? `Synced ${formatSyncedDate(playlist.last_synced_at)}` : 'Never synced' }}
             </span>
           </div>
           <div v-if="syncing" class="sync-indicator">
