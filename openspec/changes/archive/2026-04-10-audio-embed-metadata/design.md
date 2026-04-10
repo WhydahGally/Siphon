@@ -2,7 +2,7 @@
 
 Siphon uses yt-dlp to download YouTube playlists and videos. For audio downloads, `build_audio_postprocessors()` in `formats.py` returns a single-element list containing only `FFmpegExtractAudio`. The yt-dlp opts dict has no `writethumbnail` key. As a result, all embedding postprocessors are never reached, and downloaded audio files have no ID3 tags and no cover art.
 
-The fix is entirely local to `formats.py`. No other file needs to change.
+The fix touches two files: `formats.py` (postprocessors list) and `downloader.py` (`writethumbnail` flag in `_build_ydl_opts()`). The `writethumbnail` option belongs in the yt-dlp opts dict, which is assembled in `downloader.py`, not in the postprocessors list.
 
 ## Goals / Non-Goals
 
