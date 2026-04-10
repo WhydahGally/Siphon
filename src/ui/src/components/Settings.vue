@@ -133,7 +133,10 @@ async function handleFactoryReset() {
       <div class="setting-row">
         <div class="setting-label-col">
           <span class="setting-label">Max concurrent downloads</span>
-          <span class="setting-desc">How many files to download simultaneously.</span>
+          <span class="setting-desc">
+            How many simultaneous downloads. 
+            Higher numbers may get blocked.
+          </span>
         </div>
         <div class="setting-control-col">
           <select v-model="maxConcurrent" class="select" @change="onMaxConcurrentChange">
@@ -147,7 +150,7 @@ async function handleFactoryReset() {
           <span class="setting-label">Default sync interval</span>
           <span class="setting-desc">
             How often to check all watched playlists for new videos.
-            Per-playlist intervals override this.
+            Per-playlist intervals takes precedence.
           </span>
         </div>
         <div class="setting-control-col interval-control">
@@ -180,7 +183,7 @@ async function handleFactoryReset() {
       <div class="setting-row">
         <div class="setting-label-col">
           <span class="setting-label">Auto rename</span>
-          <span class="setting-desc">Default state of the Auto rename checkbox when adding a new download.</span>
+          <span class="setting-desc">Default state of the <code>Auto rename</code> checkbox when adding a new download.</span>
         </div>
         <div class="setting-control-col">
           <label class="toggle-switch">
@@ -268,7 +271,7 @@ async function handleFactoryReset() {
 
       <div class="danger-row">
         <div class="danger-label-col">
-          <span class="setting-label">Delete All Playlists</span>
+          <span class="setting-label">Delete Playlists</span>
           <span class="setting-desc">
             Removes all playlists and their sync history.
             Settings are kept. Your downloaded files are not affected.
@@ -276,7 +279,7 @@ async function handleFactoryReset() {
         </div>
         <div class="danger-control-col">
           <ConfirmButton
-            label="Delete All Playlists"
+            label="Delete Playlists"
             danger-label="Yes, delete all"
             @confirm="handleDeleteAllPlaylists"
           />
@@ -412,6 +415,7 @@ code {
   padding: 4px 8px;
   font-size: 12px;
   min-width: 0;
+  width: fit-content;
 }
 
 /* ── Toggle switch ─────────────────────────────────────────────────────── */
