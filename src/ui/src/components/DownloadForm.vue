@@ -294,6 +294,7 @@ async function handleDownload() {
   align-items: center;
   gap: 20px;
   flex-wrap: wrap;
+  min-height: 36px;
 }
 
 .toggle-label {
