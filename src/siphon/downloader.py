@@ -180,6 +180,7 @@ def _build_ydl_opts(
     elif options.mode == "audio":
         # For audio we always want the best audio-only stream as the source.
         ydl_opts["format"] = "bestaudio/best"
+        ydl_opts["writethumbnail"] = True
         ydl_opts["postprocessors"] = build_audio_postprocessors(options.audio_format)
         logger.debug("Audio format: %s | postprocessors: %s", options.audio_format, ydl_opts["postprocessors"])
 

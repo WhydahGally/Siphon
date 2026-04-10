@@ -85,7 +85,9 @@ def build_audio_postprocessors(audio_format: str) -> list:
             {
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "opus",
-            }
+            },
+            {"key": "FFmpegMetadata", "add_metadata": True},
+            {"key": "EmbedThumbnail"},
         ]
     if audio_format == "mp3":
         return [
@@ -93,7 +95,9 @@ def build_audio_postprocessors(audio_format: str) -> list:
                 "key": "FFmpegExtractAudio",
                 "preferredcodec": "mp3",
                 "preferredquality": "0",  # VBR best — yt-dlp will not upsample
-            }
+            },
+            {"key": "FFmpegMetadata", "add_metadata": True},
+            {"key": "EmbedThumbnail"},
         ]
     # Unreachable if DownloadOptions validation is used, but guard anyway.
     raise ValueError(f"Unsupported audio format: {audio_format}")

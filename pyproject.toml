@@ -11,6 +11,7 @@ dependencies = [
     "requests>=2.32",
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
+    "mutagen>=1.47",
 ]
 
 [project.scripts]
