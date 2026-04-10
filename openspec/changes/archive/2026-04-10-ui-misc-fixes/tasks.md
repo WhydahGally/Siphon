@@ -36,3 +36,9 @@
 - [x] 8.1 Replace `favicon.svg` with a clean flat funnel icon (purple, transparent background, horizontal filter stripes)
 - [x] 8.2 Embed the funnel SVG inline in `NavBar.vue` to the left of the "Siphon" wordmark
 - [x] 8.3 Apply `filter: drop-shadow` on hover so the funnel glows alongside the text
+
+## 9. Auto-rename toggle flash on page load and tab switch
+
+- [x] 9.1 Create `useSettings.js` composable that fetches `/settings` immediately on module import and exposes `autoRename` and `loaded` module-level refs
+- [x] 9.2 In `DownloadForm.vue`, import `useSettings` and guard the Auto rename toggle with `v-if="settingsLoaded"`; seed the local `autoRename` copy from the shared ref and sync it via a `watch({ once: true })` for the fresh-load case
+- [x] 9.3 In `Settings.vue`, import `useSettings` and guard the Auto rename toggle with `v-if="settingsLoaded"` so it renders only after the setting is confirmed

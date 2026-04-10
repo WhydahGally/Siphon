@@ -98,3 +98,14 @@ The web application SHALL use a custom flat funnel SVG as its favicon and displa
 #### Scenario: Navbar hover
 - **WHEN** the user hovers over the logo area in the navbar
 - **THEN** both the funnel icon and the "Siphon" text glow with the accent colour
+
+### Requirement: Auto-rename toggle does not flash on page load or tab switch
+The Auto rename toggle in both the Dashboard download form and the Settings page SHALL render only once the setting value has been confirmed by the daemon. It SHALL NOT briefly appear in the wrong state and then flip after a fetch resolves.
+
+#### Scenario: Page refresh with auto-rename disabled
+- **WHEN** the user refreshes the page and `auto_rename_default` is `false`
+- **THEN** the Auto rename toggle is not visible until the setting is loaded, after which it renders in the OFF state — no ON→OFF flip occurs
+
+#### Scenario: Navigating between Dashboard and Settings
+- **WHEN** the user switches between the Dashboard and Settings pages
+- **THEN** the Auto rename toggle renders immediately in the correct state on both pages with no visible flip
