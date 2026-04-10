@@ -379,6 +379,24 @@ def get_setting(key: str) -> Optional[str]:
     return row[0] if row else None
 
 
+def delete_all_playlists() -> None:
+    """Remove all playlists and their associated data. Settings are preserved."""
+    conn = _get_conn()
+    with conn:
+        conn.execute("DELETE FROM items")
+        conn.execute("DELETE FROM failed_downloads")
+        conn.execute("DELETE FROM ignored_items")
+        conn.execute("DELETE FROM playlists")
+
+
+def factory_reset() -> None:
+    """Wipe all data including settings. Leaves an empty, initialised database."""
+    delete_all_playlists()
+    conn = _get_conn()
+    with conn:
+        conn.execute("DELETE FROM settings")
+
+
 def get_downloaded_ids(playlist_id: str) -> set:
     """Return the set of video_ids already in `items` for a playlist."""
     conn = _get_conn()

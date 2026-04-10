@@ -29,6 +29,13 @@ onMounted(async () => {
   } catch {
     // daemon not reachable yet — don't crash
   }
+  try {
+    const res = await fetch('/settings/auto-rename')
+    const data = await res.json()
+    if (data.value === 'false') autoRename.value = false
+  } catch {
+    // daemon not reachable — keep default true
+  }
 })
 
 async function handleDownload() {

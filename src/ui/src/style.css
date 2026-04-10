@@ -29,6 +29,15 @@ body {
   min-height: 100vh;
 }
 
+[data-theme="light"] {
+  --bg: #f0f0f5;
+  --surface: #ffffff;
+  --surface-2: #e8e8f0;
+  --border: #d0d0e0;
+  --text: #1a1a2e;
+  --text-muted: #5a5a72;
+}
+
 input, select, button {
   font-family: inherit;
   font-size: inherit;

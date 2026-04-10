@@ -43,6 +43,8 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
+import importlib.metadata
+
 import requests as _requests
 import uvicorn
 from fastapi import FastAPI, HTTPException
@@ -1010,6 +1012,22 @@ def api_get_playlist(playlist_id: str):
     return _playlist_to_dict(row)
 
 
+@app.delete("/playlists", status_code=204)
+def api_delete_all_playlists():
+    if _scheduler is not None:
+        for pid in list(registry.list_playlists()):
+            _scheduler.remove_playlist(pid["id"])
+    registry.delete_all_playlists()
+
+
+@app.post("/factory-reset", status_code=204)
+def api_factory_reset():
+    if _scheduler is not None:
+        for pid in list(registry.list_playlists()):
+            _scheduler.remove_playlist(pid["id"])
+    registry.factory_reset()
+
+
 @app.delete("/playlists/{playlist_id}", status_code=204)
 def api_delete_playlist(playlist_id: str):
     row = registry.get_playlist_by_id(playlist_id)
@@ -1106,9 +1124,26 @@ def api_get_setting(key: str):
 def api_put_setting(key: str, body: SettingWrite):
     if key not in _KNOWN_KEYS:
         raise HTTPException(status_code=400, detail=f"Unknown key '{key}'. Known keys: {', '.join(_KNOWN_KEYS)}.")
+    if key in _ALLOWED_VALUES and body.value not in _ALLOWED_VALUES[key]:
+        allowed = ", ".join(sorted(_ALLOWED_VALUES[key]))
+        raise HTTPException(status_code=400, detail=f"Invalid value '{body.value}' for '{key}'. Allowed: {allowed}.")
     db_key = _KNOWN_KEYS[key][0]
     registry.set_setting(db_key, body.value)
     return {"key": key, "value": body.value}
+
+
+# ------------------------------------------------------------------
+# /version endpoint
+# ------------------------------------------------------------------
+
+@app.get("/version")
+def api_version():
+    try:
+        siphon_ver = importlib.metadata.version("siphon")
+    except importlib.metadata.PackageNotFoundError:
+        siphon_ver = "unknown"
+    import yt_dlp.version as _ytv
+    return {"siphon": siphon_ver, "yt_dlp": _ytv.__version__}
 
 
 # ------------------------------------------------------------------
@@ -1738,6 +1773,42 @@ def cmd_delete(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# delete-all-playlists
+# ---------------------------------------------------------------------------
+
+def cmd_delete_all_playlists(args: argparse.Namespace) -> int:
+    playlists = _daemon_get("/playlists")
+    count = len(playlists)
+    print(f"This will remove all {count} playlist(s) and their sync history from the registry.")
+    print("Your downloaded files will NOT be deleted.")
+    print()
+    answer = input("Confirm? [y/N] ").strip().lower()
+    if answer != "y":
+        print("Cancelled. No changes made.")
+        return 0
+    _daemon_delete("/playlists")
+    print("All playlists removed.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# factory-reset
+# ---------------------------------------------------------------------------
+
+def cmd_factory_reset(args: argparse.Namespace) -> int:
+    print("This will wipe ALL playlists, sync history, and settings.")
+    print("Your downloaded files will NOT be deleted.")
+    print()
+    answer = input("Confirm factory reset? [y/N] ").strip().lower()
+    if answer != "y":
+        print("Cancelled. No changes made.")
+        return 0
+    _daemon_post("/factory-reset", expect_status=204)
+    print("Factory reset complete.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # sync-failed
 # ---------------------------------------------------------------------------
 
@@ -1786,9 +1857,25 @@ _KNOWN_KEYS = {
         "Default sync interval in seconds for all watched playlists (e.g. 3600 = hourly, "
         "86400 = daily). Per-playlist overrides take precedence. Default: 86400.",
     ),
+    "auto-rename": (
+        "auto_rename_default",
+        "Global default for the auto-rename toggle when adding a new download. "
+        "Accepted values: true, false. Default: true.",
+    ),
+    "theme": (
+        "theme",
+        "UI colour theme. Accepted values: dark, light. Default: dark.",
+    ),
 }
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
+
+# Keys whose values must be one of a fixed set.
+_ALLOWED_VALUES: dict = {
+    "log-level": {"DEBUG", "INFO", "WARNING", "ERROR"},
+    "auto-rename": {"true", "false"},
+    "theme": {"dark", "light"},
+}
 
 _PLAYLIST_KNOWN_KEYS = {"interval", "auto-rename", "watched"}
 
@@ -1989,6 +2076,12 @@ def main() -> None:
     p_del = sub.add_parser("delete", help="Remove a playlist from the registry.")
     p_del.add_argument("name", help="Name of the playlist to delete.")
 
+    # -- delete-all-playlists --
+    sub.add_parser("delete-all-playlists", help="Remove all playlists and sync history from the registry.")
+
+    # -- factory-reset --
+    sub.add_parser("factory-reset", help="Wipe all playlists, history, and settings. Downloaded files are not affected.")
+
     # -- config --
     p_cfg = sub.add_parser("config", help="Get or set a global configuration value.")
     p_cfg.add_argument("key", choices=list(_KNOWN_KEYS), help="Config key to read or write.")
@@ -2014,6 +2107,8 @@ def main() -> None:
         "sync-failed": cmd_sync_failed,
         "list": cmd_list,
         "delete": cmd_delete,
+        "delete-all-playlists": cmd_delete_all_playlists,
+        "factory-reset": cmd_factory_reset,
         "config": cmd_config,
         "config-playlist": cmd_config_playlist,
         "playlist-items": cmd_playlist_items,
