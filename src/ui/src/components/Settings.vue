@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import ConfirmButton from './ConfirmButton.vue'
 import { useToast } from '../composables/useToast.js'
 import { ddhhmmssToSecs, secsToDdhhmmss, secsToHuman } from '../utils/interval.js'
@@ -62,18 +62,40 @@ async function saveSetting(key, value) {
 // ── Downloads ───────────────────────────────────────────────────────────────────
 function onMaxConcurrentChange() { saveSetting('max-concurrent-downloads', maxConcurrent.value) }
 
+const intervalEditRef = ref(null)
+let _intervalClickOutside = null
+
 function openIntervalEdit() {
   intervalInput.value = secsToDdhhmmss(intervalSecs.value)
   editingInterval.value = true
+  nextTick(() => {
+    intervalEditRef.value?.querySelector('input')?.focus()
+    _intervalClickOutside = (e) => {
+      if (intervalEditRef.value && !intervalEditRef.value.contains(e.target)) {
+        cancelIntervalEdit()
+      }
+    }
+    document.addEventListener('mousedown', _intervalClickOutside)
+  })
 }
 function saveInterval() {
+  _removeIntervalListener()
   const secs = ddhhmmssToSecs(intervalInput.value)
   editingInterval.value = false
   if (secs === null) return
   intervalSecs.value = secs
   saveSetting('interval', secs)
 }
-function cancelIntervalEdit() { editingInterval.value = false }
+function cancelIntervalEdit() {
+  _removeIntervalListener()
+  editingInterval.value = false
+}
+function _removeIntervalListener() {
+  if (_intervalClickOutside) {
+    document.removeEventListener('mousedown', _intervalClickOutside)
+    _intervalClickOutside = null
+  }
+}
 
 function onAutoRenameToggle() {
   autoRenameGlobal.value = !autoRenameGlobal.value
@@ -153,7 +175,7 @@ async function handleFactoryReset() {
             Per-playlist intervals takes precedence.
           </span>
         </div>
-        <div class="setting-control-col interval-control">
+        <div ref="intervalEditRef" class="setting-control-col interval-control">
           <template v-if="!editingInterval">
             <span class="interval-display" @click="openIntervalEdit">
               {{ intervalDisplay }}
@@ -168,14 +190,10 @@ async function handleFactoryReset() {
               v-model="intervalInput"
               class="interval-input"
               placeholder="DD:HH:MM:SS"
-              autofocus
-              @keydown.enter="saveInterval"
+              @keydown.enter.prevent="saveInterval"
               @keydown.escape="cancelIntervalEdit"
             />
-            <div class="interval-btns">
-              <button class="btn-save" @click="saveInterval">Save</button>
-              <button class="btn-cancel-sm" @click="cancelIntervalEdit">Cancel</button>
-            </div>
+            <button class="btn-save" @mousedown.stop @click="saveInterval">Save</button>
           </template>
         </div>
       </div>
@@ -455,8 +473,8 @@ code {
 /* ── Interval ──────────────────────────────────────────────────────────── */
 .interval-control {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
+  flex-direction: row;
+  align-items: center;
   gap: 6px;
 }
 
@@ -482,11 +500,6 @@ code {
   width: 130px;
 }
 .interval-input:focus { outline: none; border-color: var(--accent); }
-
-.interval-btns {
-  display: flex;
-  gap: 6px;
-}
 
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 .btn-save, .btn-cancel-sm, .btn-primary-sm {
