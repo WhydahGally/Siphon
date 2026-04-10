@@ -1146,6 +1146,14 @@ def api_version():
     return {"siphon": siphon_ver, "yt_dlp": _ytv.__version__}
 
 
+@app.get("/info")
+def api_info():
+    return {
+        "download_dir": _resolve_output_dir(_DEFAULT_OUTPUT_DIR),
+        "db_dir": _resolve_data_dir(),
+    }
+
+
 # ------------------------------------------------------------------
 # /health endpoint
 # ------------------------------------------------------------------
