@@ -41,18 +41,18 @@ onMounted(async () => {
 })
 
 // ── Helpers ─────────────────────────────────────────────────────────────────────
-async function saveSetting(key, value) {
+async function saveSetting(key, value, silent = false) {
   try {
     const res = await fetch(`/settings/${key}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ value: String(value) }),
     })
-    if (res.ok) {
-      showToast('Saved.', 'success')
-    } else {
+    if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       showToast(data.detail || 'Failed to save.', 'error')
+    } else if (!silent) {
+      showToast('Saved.', 'success')
     }
   } catch {
     showToast('Could not reach the daemon.', 'error')
@@ -60,7 +60,7 @@ async function saveSetting(key, value) {
 }
 
 // ── Downloads ───────────────────────────────────────────────────────────────────
-function onMaxConcurrentChange() { saveSetting('max-concurrent-downloads', maxConcurrent.value) }
+function onMaxConcurrentChange() { saveSetting('max-concurrent-downloads', maxConcurrent.value, true) }
 
 const intervalEditRef = ref(null)
 let _intervalClickOutside = null
@@ -99,7 +99,7 @@ function _removeIntervalListener() {
 
 function onAutoRenameToggle() {
   autoRenameGlobal.value = !autoRenameGlobal.value
-  saveSetting('auto-rename', autoRenameGlobal.value ? 'true' : 'false')
+  saveSetting('auto-rename', autoRenameGlobal.value ? 'true' : 'false', true)
 }
 
 // ── MusicBrainz ──────────────────────────────────────────────────────────────────
@@ -113,11 +113,11 @@ function onThemeToggle() {
   } else {
     delete document.documentElement.dataset.theme
   }
-  saveSetting('theme', isDark.value ? 'dark' : 'light')
+  saveSetting('theme', isDark.value ? 'dark' : 'light', true)
 }
 
 // ── About ─────────────────────────────────────────────────────────────────────────
-function onLogLevelChange() { saveSetting('log-level', logLevel.value) }
+function onLogLevelChange() { saveSetting('log-level', logLevel.value, true) }
 
 // ── Danger zone ───────────────────────────────────────────────────────────────────
 async function handleDeleteAllPlaylists() {
