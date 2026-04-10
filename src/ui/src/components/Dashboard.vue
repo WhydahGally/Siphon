@@ -23,5 +23,7 @@ function onJobCreated(jobId) {
   flex-direction: column;
   gap: 32px;
   padding: 32px 0;
+  max-height: calc(100vh - 56px);
+  box-sizing: border-box;
 }
 </style>
