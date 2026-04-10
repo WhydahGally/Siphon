@@ -190,6 +190,7 @@ async function handleFactoryReset() {
               v-model="intervalInput"
               class="interval-input"
               placeholder="DD:HH:MM:SS"
+              title="Format - DD:HH:MM:SS"
               @keydown.enter.prevent="saveInterval"
               @keydown.escape="cancelIntervalEdit"
             />

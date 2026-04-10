@@ -5,7 +5,14 @@ const emit = defineEmits(['navigate'])
 
 <template>
   <nav class="navbar">
-    <span class="logo">Siphon</span>
+    <span class="logo">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="25" height="25" aria-hidden="true">
+        <path d="M6 10 h36 L29 27 v13 H19 V27 Z" fill="currentColor"/>
+        <line x1="9"  y1="16" x2="39" y2="16" stroke="white" stroke-width="2.5" stroke-opacity="0.35"/>
+        <line x1="13" y1="22" x2="35" y2="22" stroke="white" stroke-width="2.5" stroke-opacity="0.35"/>
+      </svg>
+      Siphon
+    </span>
 
     <div class="nav-center">
       <button
@@ -54,11 +61,21 @@ const emit = defineEmits(['navigate'])
   color: var(--accent);
   user-select: none;
   justify-self: start;
-  transition: text-shadow 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.logo svg {
+  transition: filter 0.2s;
 }
 
 .logo:hover {
   text-shadow: 0 0 10px var(--accent), 0 0 24px rgba(124, 106, 247, 0.5);
+}
+
+.logo:hover svg {
+  filter: drop-shadow(0 0 6px var(--accent)) drop-shadow(0 0 14px rgba(124, 106, 247, 0.5));
 }
 
 .nav-center {

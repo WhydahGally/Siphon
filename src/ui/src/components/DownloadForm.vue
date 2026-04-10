@@ -1,6 +1,7 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useToast } from '../composables/useToast.js'
+import { ddhhmmssToSecs, secsToDdhhmmss, secsToHuman } from '../utils/interval.js'
 
 const emit = defineEmits(['job-created'])
 const { showToast } = useToast()
@@ -11,7 +12,43 @@ const quality = ref('best')
 const autoRename = ref(true)
 const autoSync = ref(true)
 const interval = ref(86400)
+const editingInterval = ref(false)
+const intervalInput = ref('')
+const intervalEditRef = ref(null)
+const intervalDisplay = computed(() => secsToHuman(interval.value))
 const loading = ref(false)
+
+let _intervalClickOutside = null
+
+function openIntervalEdit() {
+  intervalInput.value = secsToDdhhmmss(interval.value)
+  editingInterval.value = true
+  nextTick(() => {
+    intervalEditRef.value?.querySelector('input')?.focus()
+    _intervalClickOutside = (e) => {
+      if (intervalEditRef.value && !intervalEditRef.value.contains(e.target)) {
+        cancelIntervalEdit()
+      }
+    }
+    document.addEventListener('mousedown', _intervalClickOutside)
+  })
+}
+function saveInterval() {
+  _removeIntervalListener()
+  const secs = ddhhmmssToSecs(intervalInput.value)
+  editingInterval.value = false
+  if (secs !== null) interval.value = secs
+}
+function cancelIntervalEdit() {
+  _removeIntervalListener()
+  editingInterval.value = false
+}
+function _removeIntervalListener() {
+  if (_intervalClickOutside) {
+    document.removeEventListener('mousedown', _intervalClickOutside)
+    _intervalClickOutside = null
+  }
+}
 const mbUserAgentMissing = ref(false)
 
 const AUDIO_FORMATS = ['mp3', 'opus']
@@ -160,16 +197,27 @@ async function handleDownload() {
       </label>
 
       <!-- Interval (playlist + autoSync only) -->
-      <div v-if="isPlaylist && autoSync" class="interval-group">
-        <input
-          v-model.number="interval"
-          class="interval-input"
-          type="number"
-          min="60"
-          placeholder="86400"
-          :disabled="loading"
-        />
-        <span class="interval-hint">seconds</span>
+      <div v-if="isPlaylist && autoSync" ref="intervalEditRef" class="interval-group">
+        <template v-if="!editingInterval">
+          <span class="interval-display" @click="openIntervalEdit">
+            {{ intervalDisplay }}
+            <svg class="pencil-icon" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+          </span>
+        </template>
+        <template v-else>
+          <input
+            v-model="intervalInput"
+            class="interval-input"
+            placeholder="DD:HH:MM:SS"
+            title="Format - DD:HH:MM:SS"
+            @keydown.enter.prevent="saveInterval"
+            @keydown.escape="cancelIntervalEdit"
+          />
+          <button class="btn-save" @mousedown.stop @click="saveInterval">Save</button>
+        </template>
       </div>
     </div>
 
@@ -294,6 +342,7 @@ async function handleDownload() {
   align-items: center;
   gap: 20px;
   flex-wrap: wrap;
+  min-height: 36px;
 }
 
 .toggle-label {
@@ -356,28 +405,44 @@ async function handleDownload() {
 .interval-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
+.interval-display {
+  font-size: 13px;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.interval-display:hover { color: var(--text); }
+
+.pencil-icon { opacity: 0.5; flex-shrink: 0; }
+
 .interval-input {
-  width: 90px;
+  width: 130px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 7px 8px;
+  padding: 5px 10px;
+  font-size: 13px;
   color: var(--text);
   outline: none;
-  transition: border-color 0.15s;
 }
+.interval-input:focus { border-color: var(--accent); }
 
-.interval-input:focus {
-  border-color: var(--accent);
-}
-
-.interval-hint {
+.btn-save {
+  border-radius: var(--radius-sm);
+  padding: 5px 12px;
   font-size: 12px;
-  color: var(--text-muted);
+  font-weight: 500;
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
+  white-space: nowrap;
 }
+.btn-save:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 
 .spinner-sm {
   display: inline-block;

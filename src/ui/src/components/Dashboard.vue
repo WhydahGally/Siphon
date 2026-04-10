@@ -4,16 +4,14 @@ import DownloadForm from './DownloadForm.vue'
 import DownloadQueue from './DownloadQueue.vue'
 
 const queueRef = ref(null)
-const hasStarted = ref(false)
 
 function onJobCreated(jobId) {
-  hasStarted.value = true
   queueRef.value?.addJob(jobId)
 }
 </script>
 
 <template>
-  <div class="dashboard" :class="{ centered: !hasStarted }">
+  <div class="dashboard">
     <DownloadForm @job-created="onJobCreated" />
     <DownloadQueue ref="queueRef" @has-jobs="hasStarted = true" />
   </div>
@@ -24,17 +22,8 @@ function onJobCreated(jobId) {
   display: flex;
   flex-direction: column;
   gap: 32px;
-  transition: all 0.3s ease;
-}
-
-/* Before first job: vertically center the form in the remaining viewport */
-.dashboard.centered {
-  min-height: calc(70vh - 56px);
-  justify-content: center;
-}
-
-/* Once started: normal top-padded layout */
-.dashboard:not(.centered) {
   padding: 32px 0;
+  max-height: calc(100vh - 56px);
+  box-sizing: border-box;
 }
 </style>
