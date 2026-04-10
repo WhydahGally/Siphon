@@ -11,7 +11,7 @@ const jobs = ref([])
 const eventSources = {}
 
 // --- Sort order helper ---
-const STATE_ORDER = { downloading: 0, pending: 1, done: 2, failed: 3 }
+const STATE_ORDER = { failed: 0, downloading: 1, pending: 2, done: 3 }
 
 function sortedItems(items) {
   return [...items].sort((a, b) => (STATE_ORDER[a.state] ?? 9) - (STATE_ORDER[b.state] ?? 9))
