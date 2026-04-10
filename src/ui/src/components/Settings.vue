@@ -244,7 +244,7 @@ async function handleFactoryReset() {
         <span class="about-key">Siphon</span>
         <span class="about-val">{{ version.siphon }}</span>
 
-        <span class="about-key">yt-dlp</span>
+        <span class="about-key">YT-DLP</span>
         <span class="about-val">{{ version.yt_dlp }}</span>
 
         <span class="about-key">Source</span>
@@ -553,7 +553,6 @@ code {
 .about-val {
   font-size: 13px;
   color: var(--text);
-  font-family: ui-monospace, 'Cascadia Code', monospace;
 }
 
 .about-link {

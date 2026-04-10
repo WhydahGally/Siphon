@@ -10,6 +10,8 @@ export default defineConfig({
       '/jobs': 'http://localhost:8000',
       '/settings': 'http://localhost:8000',
       '/health': 'http://localhost:8000',
+      '/version': 'http://localhost:8000',
+      '/factory-reset': 'http://localhost:8000',
     },
   },
 })
