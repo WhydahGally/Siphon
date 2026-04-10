@@ -10,7 +10,7 @@ The Settings page SHALL be organised into five labelled sections rendered top-to
 ---
 
 ### Requirement: Downloads section — max concurrent downloads
-The Downloads section SHALL contain a labelled dropdown to select the maximum number of concurrent downloads. The dropdown SHALL list integer options 1 through 10. The displayed value SHALL reflect the current `max-concurrent-downloads` setting loaded from `GET /settings/max-concurrent-downloads` on mount. When no value is stored, 5 SHALL be pre-selected as the default. Changing the dropdown value SHALL immediately call `PUT /settings/max-concurrent-downloads` and show a success toast.
+The Downloads section SHALL contain a labelled dropdown to select the maximum number of concurrent downloads. The dropdown SHALL list integer options 1 through 10. The displayed value SHALL reflect the current `max-concurrent-downloads` setting loaded from `GET /settings/max-concurrent-downloads` on mount. When no value is stored, 5 SHALL be pre-selected as the default. Changing the dropdown value SHALL immediately call `PUT /settings/max-concurrent-downloads` and auto-save silently (no success toast).
 
 #### Scenario: Default value displayed
 - **WHEN** the Settings page loads and `max-concurrent-downloads` has never been set
@@ -22,7 +22,7 @@ The Downloads section SHALL contain a labelled dropdown to select the maximum nu
 
 #### Scenario: Value changed
 - **WHEN** the user selects a different value from the dropdown
-- **THEN** `PUT /settings/max-concurrent-downloads` SHALL be called with the new value and a success toast SHALL appear
+- **THEN** `PUT /settings/max-concurrent-downloads` SHALL be called with the new value silently (no toast)
 
 ---
 
@@ -31,7 +31,7 @@ The Downloads section SHALL contain a labelled inline-editable interval field sh
 
 #### Scenario: Default value displayed
 - **WHEN** the Settings page loads and `interval` has never been set
-- **THEN** the interval display SHALL show "00:01:00:00" and the summary SHALL read "Every day"
+- **THEN** the interval display SHALL show "01:00:00:00" and the summary SHALL read "Every day"
 
 #### Scenario: Interval saved
 - **WHEN** the user edits the interval field and presses Save with a valid DD:HH:MM:SS value
@@ -44,7 +44,7 @@ The Downloads section SHALL contain a labelled inline-editable interval field sh
 ---
 
 ### Requirement: Downloads section — global auto-rename default
-The Downloads section SHALL contain a labelled toggle for the global auto-rename default. The toggle state SHALL reflect `auto-rename` from `GET /settings/auto-rename` on mount; if unset it SHALL default to `on`. Changing the toggle SHALL immediately call `PUT /settings/auto-rename` and show a success toast. A muted description SHALL explain that this sets the default checkbox state when adding a new download.
+The Downloads section SHALL contain a labelled toggle for the global auto-rename default. The toggle state SHALL reflect `auto-rename` from `GET /settings/auto-rename` on mount; if unset it SHALL default to `on`. Changing the toggle SHALL immediately call `PUT /settings/auto-rename` and auto-save silently (no success toast). A muted description SHALL explain that this sets the default checkbox state when adding a new download.
 
 #### Scenario: Default state on first load
 - **WHEN** `auto-rename` has never been set
@@ -52,7 +52,7 @@ The Downloads section SHALL contain a labelled toggle for the global auto-rename
 
 #### Scenario: Toggle changed
 - **WHEN** the user flips the toggle
-- **THEN** `PUT /settings/auto-rename` SHALL be called with the new value and a success toast SHALL appear
+- **THEN** `PUT /settings/auto-rename` SHALL be called with the new value silently (no toast)
 
 ---
 
@@ -70,7 +70,7 @@ The MusicBrainz section SHALL contain a labelled text input for the `mb-user-age
 ---
 
 ### Requirement: Appearance section — dark/light mode toggle
-The Appearance section SHALL contain a labelled dark/light mode toggle. The initial state SHALL be loaded from `GET /settings/theme` on page load via the theme-init mechanism (see `global-config-keys` spec). Changing the toggle SHALL call `PUT /settings/theme` with `"dark"` or `"light"`, update the `data-theme` attribute on `<html>` immediately, and show a success toast.
+The Appearance section SHALL contain a labelled dark/light mode toggle. The initial state SHALL be loaded from `GET /settings/theme` on page load via the theme-init mechanism (see `global-config-keys` spec). Changing the toggle SHALL call `PUT /settings/theme` with `"dark"` or `"light"`, update the `data-theme` attribute on `<html>` immediately, and auto-save silently (no success toast).
 
 #### Scenario: Dark mode active
 - **WHEN** the stored theme is `"dark"` (or unset)
@@ -87,7 +87,7 @@ The Appearance section SHALL contain a labelled dark/light mode toggle. The init
 ---
 
 ### Requirement: About section
-The About section SHALL display: the Siphon version, the yt-dlp version, a hyperlink to the project repository, and a labelled dropdown to choose the log level. Version data SHALL be loaded from `GET /version`. The project link SHALL open `https://github.com/WhydahGally/Siphon` in a new browser tab. The log level dropdown SHALL list `DEBUG`, `INFO`, `WARNING`, `ERROR`; the current value SHALL be loaded from `GET /settings/log-level` on mount and SHALL default to `INFO` if unset. Changing the log level SHALL immediately call `PUT /settings/log-level` and show a success toast.
+The About section SHALL display: the Siphon version, the yt-dlp version, a hyperlink to the project repository, and a labelled dropdown to choose the log level. Version data SHALL be loaded from `GET /version`. The project link SHALL open `https://github.com/WhydahGally/Siphon` in a new browser tab. The log level dropdown SHALL list `DEBUG`, `INFO`, `WARNING`, `ERROR`; the current value SHALL be loaded from `GET /settings/log-level` on mount and SHALL default to `INFO` if unset. Changing the log level SHALL immediately call `PUT /settings/log-level` and auto-save silently (no success toast).
 
 #### Scenario: Versions displayed
 - **WHEN** the Settings page loads and the daemon is reachable
@@ -99,15 +99,15 @@ The About section SHALL display: the Siphon version, the yt-dlp version, a hyper
 
 #### Scenario: Log level changed
 - **WHEN** the user selects a new log level from the dropdown
-- **THEN** `PUT /settings/log-level` SHALL be called with the selected value and a success toast SHALL appear
+- **THEN** `PUT /settings/log-level` SHALL be called with the selected value silently (no toast)
 
 ---
 
 ### Requirement: Danger Zone section — delete all playlists
-The Danger Zone section SHALL contain a "Delete All Playlists" action using the `ConfirmButton` component (initial label "Delete All Playlists", confirm label "Yes, delete all"). A description SHALL state that all playlists and sync history are removed but settings and downloaded files are kept. Confirming SHALL call `DELETE /playlists` and show a success toast.
+The Danger Zone section SHALL contain a "Delete Playlists" action using the `ConfirmButton` component (initial label "Delete Playlists", confirm label "Yes, delete all"). A description SHALL state that all playlists and sync history are removed but settings and downloaded files are kept. Confirming SHALL call `DELETE /playlists` and show a success toast.
 
 #### Scenario: Confirmation required
-- **WHEN** the user clicks "Delete All Playlists"
+- **WHEN** the user clicks "Delete Playlists"
 - **THEN** the button SHALL split into "Yes, delete all" and "Cancel" before any action is taken
 
 #### Scenario: Confirmed

@@ -52,7 +52,7 @@ The web UI Settings page is a stub. All global configuration today requires the 
 - `DELETE /playlists` / `siphon delete-all-playlists` — deletes all rows from `playlists`, `downloaded_items`, `failed_downloads`, `ignored_items`. Removes all scheduler watchers. Keeps `settings`.
 - `POST /factory-reset` / `siphon factory-reset` — runs the above plus truncates `settings`.
 
-**Rationale:** Two separate endpoints matches the two-button UX. Both reuse a helper in `registry.py` (`delete_all_playlists()`) with an optional `include_settings` parameter. Matching CLI subcommands follow the existing naming convention (`siphon delete`, `siphon sync-failed`) — words separated by hyphens, verb-first where unambiguous.
+**Rationale:** Two separate endpoints matches the two-button UX. `registry.py` exposes two distinct functions: `delete_all_playlists()` (removes playlists/items/history, keeps settings) and `factory_reset()` (calls `delete_all_playlists()` then wipes settings). Matching CLI subcommands follow the existing naming convention (`siphon delete`, `siphon sync-failed`) — words separated by hyphens, verb-first where unambiguous.
 
 **Alternative considered:** `DELETE /playlists?full=true`. Rejected: semantically cleaner as two distinct operations; the UI intent is different enough to warrant different endpoints.
 
