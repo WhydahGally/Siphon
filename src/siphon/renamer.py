@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class RenameResult:
     original_title: str
     final_name: str        # filename stem, no extension
-    tier: str              # "yt_metadata" | "title_separator" | "musicbrainz" | "yt_title_fallback"
+    tier: str              # "yt_metadata" | "musicbrainz" | "yt_title_fallback"
     new_path: str          # absolute path to renamed file on disk
 
 # ---------------------------------------------------------------------------
@@ -31,29 +31,50 @@ _last_mb_request_time: float = 0.0
 
 _MB_API_URL = "https://musicbrainz.org/ws/2/recording"
 _MB_SCORE_MIN = 85
-_MB_OVERLAP_MIN = 0.4
 
 _UNSAFE_CHARS = re.compile(r'[/\\:*?"<>|]')
 
-# Common YouTube title separators, in order of reliability.
-# ⧸⧸ is yt-dlp's filename substitute for //; we check both.
+# Separators used only for the INFO-level diagnostic log.
 _TITLE_SEPARATORS = [' ⧸⧸ ', ' // ', ' – ', ' — ', ' - ']
+
+# Default inner regex patterns for strip_noise().
+# These match the content inside ( ) or [ ] at the end of a title.
+_DEFAULT_NOISE_PATTERNS = [
+    r'official\s*music\s*video',
+    r'official\s*video',
+    r'official\s*audio',
+    r'official\s*lyric\s*video',
+    r'lyric\s*video',
+    r'lyrics?',
+    r'audio(?:\s*only)?',
+    r'visuali[sz]er',
+    r'visual',
+    r'hd',
+    r'4k',
+    r'1080p',
+    r'official',
+]
 
 
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
-def rename_file(info_dict: dict, mb_user_agent: Optional[str] = None) -> Optional["RenameResult"]:
+def rename_file(
+    info_dict: dict,
+    mb_user_agent: Optional[str] = None,
+    noise_patterns: Optional[list] = None,
+) -> Optional["RenameResult"]:
     """
     Rename the downloaded file to 'Artist - Track.ext'.
 
-    Four-tier resolution chain:
-      1.   YouTube metadata    — info_dict['artist'] + info_dict['track'] if both present.
-      1.5  Title separator     — splits the YT title on // / – / — / - patterns.
-      2.   MusicBrainz         — text search if mb_user_agent is configured.
-      3.   YT title fallback   — sanitized info_dict['title'].
+    Three-tier resolution chain:
+      1.  YouTube metadata    — info_dict['artist'] + info_dict['track'] if both present.
+      2.  MusicBrainz         — free-text search if mb_user_agent is configured;
+                                validated via phrase-match against title and uploader.
+      3.  YT title fallback   — noise-stripped, sanitized info_dict['title'].
 
+    Noise stripping is applied before the MB query and to the final name at every tier.
     Returns a RenameResult on success, or None if no filepath was found.
     Non-fatal: OS rename errors are logged and swallowed.
     """
@@ -63,40 +84,38 @@ def rename_file(info_dict: dict, mb_user_agent: Optional[str] = None) -> Optiona
         return None
 
     yt_title = (info_dict.get("title") or "").strip()
+    uploader = (info_dict.get("uploader") or info_dict.get("channel") or "").strip()
 
     # Tier 1: YouTube music catalog metadata
     artist = (info_dict.get("artist") or "").strip()
     track = (info_dict.get("track") or "").strip()
     if artist and track:
         artist = _resolve_primary_artist(artist, info_dict)
-        final_name = f"{artist} - {track}"
+        final_name = strip_noise(f"{artist} - {track}", noise_patterns)
         new_path = _do_rename(filepath, final_name)
         logger.debug("renamer: tier 1 resolved via YT metadata")
         return RenameResult(original_title=yt_title, final_name=final_name, tier="yt_metadata", new_path=new_path)
 
-    # Tier 1.5: Title separator parsing
-    artist_hint, track_hint = _parse_title_separator(yt_title)
-    if artist_hint and track_hint:
-        final_name = f"{sanitize(artist_hint)} - {sanitize(track_hint)}"
-        new_path = _do_rename(filepath, final_name)
-        logger.debug("renamer: tier 1.5 resolved via title separator")
-        return RenameResult(original_title=yt_title, final_name=final_name, tier="title_separator", new_path=new_path)
-
     # Tier 2: MusicBrainz lookup
+    cleaned_title = strip_noise(yt_title, noise_patterns)
     if mb_user_agent:
-        mb_result = _mb_search(yt_title, mb_user_agent)
+        if any(sep in cleaned_title for sep in _TITLE_SEPARATORS):
+            logger.info("renamer: separator detected in title — using free-text MB query")
+        mb_result = _mb_search(cleaned_title, mb_user_agent)
         if mb_result:
             recordings = mb_result.get("recordings") or []
-            if recordings and _mb_passes_threshold(recordings[0], yt_title):
-                final_name = _mb_format_name(recordings[0])
+            if recordings and _mb_passes_threshold(recordings[0], cleaned_title, uploader):
+                final_name = strip_noise(_mb_format_name(recordings[0]), noise_patterns)
                 new_path = _do_rename(filepath, final_name)
                 logger.debug("renamer: tier 2 resolved via MusicBrainz")
                 return RenameResult(original_title=yt_title, final_name=final_name, tier="musicbrainz", new_path=new_path)
             else:
                 logger.debug("renamer: tier 2 result below threshold, falling through")
+    else:
+        logger.debug("renamer: mb_user_agent not configured, skipping tier 2")
 
     # Tier 3: YT title fallback
-    final_name = sanitize(yt_title) if yt_title else "unknown"
+    final_name = strip_noise(sanitize(cleaned_title), noise_patterns) if cleaned_title else "unknown"
     new_path = _do_rename(filepath, final_name)
     logger.debug("renamer: tier 3 fallback to YT title")
     return RenameResult(original_title=yt_title, final_name=final_name, tier="yt_title_fallback", new_path=new_path)
@@ -151,20 +170,53 @@ def _resolve_primary_artist(artist_field: str, info_dict: dict) -> str:
     return artists[0]
 
 
-def _parse_title_separator(title: str) -> tuple:
+def strip_noise(title: str, patterns: Optional[list] = None) -> str:
     """
-    Try to split a YouTube title into (artist, track) using common separators.
-    Tries separators in order of reliability: // and ⧸⧸ first (YouTube channel
-    convention), then en-dash, em-dash, then plain hyphen.
-    Returns (artist, track) as strings, or (None, None) if no split found.
+    Strip common YouTube title suffixes such as (Official Video), [Lyric Video], etc.
+
+    Patterns are inner regex strings matched inside ( ) or [ ] at the end of the title.
+    Uses _DEFAULT_NOISE_PATTERNS when patterns is None or empty.
+    Applied iteratively until no further matches are found.
     """
-    for sep in _TITLE_SEPARATORS:
-        if sep in title:
-            left, _, right = title.partition(sep)
-            left, right = left.strip(), right.strip()
-            if left and right:
-                return left, right
-    return None, None
+    active = patterns if patterns else _DEFAULT_NOISE_PATTERNS
+    if not active:
+        return title
+    inner = "|".join(active)
+    noise_re = re.compile(
+        r"\s*[\(\[]\s*(?:" + inner + r")\s*[\)\]]\s*$",
+        re.IGNORECASE,
+    )
+    prev = None
+    while prev != title:
+        prev = title
+        title = noise_re.sub("", title).strip()
+    return title
+
+
+def _normalize(s: str) -> str:
+    """Lowercase, replace non-alphanumeric characters with space, collapse whitespace."""
+    return re.sub(r"\s+", " ", re.sub(r"[^\w]", " ", s.lower())).strip()
+
+
+def _mb_artist_in_title(mb_artist: str, title: str) -> bool:
+    """Return True if the normalized MB artist is a contiguous substring of the normalized title."""
+    if not mb_artist:
+        return False
+    return _normalize(mb_artist) in _normalize(title)
+
+
+def _mb_track_in_title_excl_artist(mb_track: str, mb_artist: str, title: str) -> bool:
+    """
+    Return True if the normalized MB track is a contiguous substring of the normalized title
+    after removing the first occurrence of the normalized artist from the normalized title.
+    """
+    if not mb_track:
+        return False
+    norm_title = _normalize(title)
+    norm_artist = _normalize(mb_artist)
+    if norm_artist:
+        norm_title = norm_title.replace(norm_artist, "", 1)
+    return _normalize(mb_track) in norm_title
 
 
 # ---------------------------------------------------------------------------
@@ -207,16 +259,22 @@ def _mb_search(title: str, user_agent: str) -> Optional[dict]:
     return resp.json()
 
 
-def _mb_passes_threshold(recording: dict, yt_title: str) -> bool:
+def _mb_passes_threshold(recording: dict, yt_title: str, uploader: str = "") -> bool:
     """
-    Return True if:
-    - recording score ≥ 85
-    - MB primary artist tokens are sufficiently present in the YT title
-    - MB track title tokens are sufficiently present in the YT title
+    Validate a MusicBrainz result against the YouTube title using phrase-match logic.
 
-    Checks artist and track independently against the YT title to prevent
-    false positives from cover recordings whose titles contain the original
-    artist's name (e.g. 'Space Song (Beach House)' by Miles McLaughlin).
+    Two acceptance paths (both require score ≥ 85):
+
+    BOTH_IN_TITLE:
+      normalized(mb_artist) is a contiguous substring of normalized(yt_title)
+      AND normalized(mb_track) is a contiguous substring of normalized(yt_title)
+          with the artist portion removed first.
+
+    UPLOADER_MATCH:
+      normalized(mb_track) is a contiguous substring of normalized(yt_title)
+      AND normalized(uploader) == normalized(mb_artist) exactly.
+
+    Returns True if either path passes, False otherwise.
     """
     score = int(recording.get("score", 0))
     if score < _MB_SCORE_MIN:
@@ -225,27 +283,18 @@ def _mb_passes_threshold(recording: dict, yt_title: str) -> bool:
     mb_artist = _mb_primary_artist(recording)
     mb_track = recording.get("title", "")
 
-    return (
-        _tokens_in_text(mb_artist, yt_title)
-        and _tokens_in_text(mb_track, yt_title)
-    )
+    # BOTH_IN_TITLE path
+    if _mb_artist_in_title(mb_artist, yt_title) and _mb_track_in_title_excl_artist(mb_track, mb_artist, yt_title):
+        logger.debug("renamer: MB validator BOTH_IN_TITLE accepted")
+        return True
 
+    # UPLOADER_MATCH path
+    if uploader and _normalize(uploader) == _normalize(mb_artist):
+        if _mb_track_in_title_excl_artist(mb_track, mb_artist, yt_title):
+            logger.debug("renamer: MB validator UPLOADER_MATCH accepted")
+            return True
 
-def _tokens_in_text(needle: str, haystack: str) -> bool:
-    """
-    Return True if at least _MB_OVERLAP_MIN fraction of needle's word tokens
-    appear in haystack. Checks containment (needle ⊆ haystack), not symmetric
-    Jaccard, so a short artist name like 'Drake' doesn't get diluted by a
-    long title string.
-    """
-    def tokens(s: str) -> set:
-        return set(re.sub(r"[^\w\s]", "", s.lower()).split())
-
-    n_tokens = tokens(needle)
-    h_tokens = tokens(haystack)
-    if not n_tokens:
-        return False
-    return len(n_tokens & h_tokens) / len(n_tokens) >= _MB_OVERLAP_MIN
+    return False
 
 
 def _mb_primary_artist(recording: dict) -> str:

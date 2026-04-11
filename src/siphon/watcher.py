@@ -440,6 +440,18 @@ def _fmt_size(path: str) -> str:
     return f"{n / 1024 ** 3:.2f} GB"
 
 
+def _get_noise_patterns() -> Optional[list]:
+    """Load title-noise-patterns from settings DB. Returns None when unset."""
+    import json as _json
+    raw = registry.get_setting("title_noise_patterns")
+    if not raw:
+        return None
+    try:
+        return _json.loads(raw)
+    except Exception:
+        return None
+
+
 def _download_worker(
     entry: dict,
     playlist_id: Optional[str],
@@ -448,6 +460,7 @@ def _download_worker(
     output_dir: str,
     mb_user_agent: Optional[str],
     auto_rename: bool = False,
+    noise_patterns: Optional[list] = None,
 ) -> Tuple[Optional[ItemRecord], Optional[FailureRecord]]:
     """
     Worker function: download a single video entry.
@@ -497,6 +510,7 @@ def _download_worker(
             mb_user_agent=mb_user_agent,
             auto_rename=auto_rename,
             on_item_complete=on_item,
+            noise_patterns=noise_patterns,
         )
     except Exception as exc:
         err = str(exc)
@@ -553,6 +567,7 @@ def download_parallel(
     mb_user_agent: Optional[str],
     max_workers: int,
     auto_rename: bool = False,
+    noise_patterns: Optional[list] = None,
 ) -> Tuple[List[ItemRecord], List[FailureRecord]]:
     """
     Download entries concurrently using a thread pool.
@@ -582,7 +597,7 @@ def download_parallel(
             fut = executor.submit(
                 _download_worker,
                 entry, playlist_id, playlist_name, options, output_dir,
-                mb_user_agent, auto_rename,
+                mb_user_agent, auto_rename, noise_patterns,
             )
             futures[fut] = entry
 
@@ -807,6 +822,7 @@ class PlaylistScheduler:
                 mb_user_agent=registry.get_setting("mb_user_agent"),
                 max_workers=_get_max_workers(),
                 auto_rename=bool(row["auto_rename"]),
+                noise_patterns=_get_noise_patterns(),
             )
         except Exception as exc:
             logger.error("PlaylistScheduler: sync failed for '%s': %s", row["name"], exc)
@@ -964,6 +980,7 @@ def api_add_playlist(body: PlaylistCreate):
                 mb_user_agent=mb_user_agent,
                 max_workers=_get_max_workers(),
                 auto_rename=body.auto_rename,
+                noise_patterns=_get_noise_patterns(),
             ),
             daemon=True,
         )
@@ -1073,6 +1090,7 @@ def api_sync_playlist(playlist_id: str):
             mb_user_agent=registry.get_setting("mb_user_agent"),
             max_workers=_get_max_workers(),
             auto_rename=bool(row["auto_rename"]),
+            noise_patterns=_get_noise_patterns(),
         ),
         daemon=True,
     )
@@ -1127,6 +1145,20 @@ def api_put_setting(key: str, body: SettingWrite):
     if key in _ALLOWED_VALUES and body.value not in _ALLOWED_VALUES[key]:
         allowed = ", ".join(sorted(_ALLOWED_VALUES[key]))
         raise HTTPException(status_code=400, detail=f"Invalid value '{body.value}' for '{key}'. Allowed: {allowed}.")
+    if key == "title-noise-patterns":
+        import json as _json
+        import re as _re
+        try:
+            patterns = _json.loads(body.value)
+        except (_json.JSONDecodeError, TypeError):
+            raise HTTPException(status_code=400, detail="title-noise-patterns must be a valid JSON array of strings.")
+        if not isinstance(patterns, list) or not all(isinstance(p, str) for p in patterns):
+            raise HTTPException(status_code=400, detail="title-noise-patterns must be a JSON array of strings.")
+        for p in patterns:
+            try:
+                _re.compile(p)
+            except _re.error as exc:
+                raise HTTPException(status_code=400, detail=f"Invalid regex pattern '{p}': {exc}")
     db_key = _KNOWN_KEYS[key][0]
     registry.set_setting(db_key, body.value)
     return {"key": key, "value": body.value}
@@ -1261,6 +1293,7 @@ def api_create_job(body: JobCreate):
             mb_user_agent=mb_user_agent,
             max_workers=_get_max_workers(),
             auto_rename=body.auto_rename,
+            noise_patterns=_get_noise_patterns(),
         ),
         daemon=True,
     )
@@ -1370,6 +1403,7 @@ def api_retry_failed_job(job_id: str):
             mb_user_agent=mb_user_agent,
             max_workers=_get_max_workers(),
             auto_rename=auto_rename,
+            noise_patterns=_get_noise_patterns(),
         ),
         daemon=True,
     )
@@ -1424,6 +1458,7 @@ def _run_download_job(
     mb_user_agent: Optional[str],
     max_workers: int,
     auto_rename: bool = False,
+    noise_patterns: Optional[list] = None,
 ) -> None:
     """
     Background thread: drives per-item state transitions and downloads.
@@ -1463,6 +1498,7 @@ def _run_download_job(
             output_dir=output_dir,
             mb_user_agent=mb_user_agent,
             auto_rename=auto_rename,
+            noise_patterns=noise_patterns,
         )
         if failure is not None:
             if _job_store is not None:
@@ -1515,6 +1551,7 @@ def _run_sync_failed_for_playlist(row) -> None:
         mb_user_agent=registry.get_setting("mb_user_agent"),
         max_workers=_get_max_workers(),
         auto_rename=bool(row["auto_rename"]),
+        noise_patterns=_get_noise_patterns(),
     )
     logger.info("'%s': %d recovered, %d still failing.", pname, len(successes), len(new_failures))
 
@@ -1645,6 +1682,7 @@ def _sync_parallel(
     mb_user_agent: Optional[str],
     max_workers: int,
     auto_rename: bool = False,
+    noise_patterns: Optional[list] = None,
 ) -> None:
     try:
         options = _build_options(fmt, quality)
@@ -1682,6 +1720,7 @@ def _sync_parallel(
             mb_user_agent=mb_user_agent,
             max_workers=max_workers,
             auto_rename=auto_rename,
+            noise_patterns=noise_patterns,
         )
 
         registry.update_last_synced(playlist_id)
@@ -1873,6 +1912,12 @@ _KNOWN_KEYS = {
     "theme": (
         "theme",
         "UI colour theme. Accepted values: dark, light. Default: dark.",
+    ),
+    "title-noise-patterns": (
+        "title_noise_patterns",
+        "JSON array of regex pattern strings for stripping YouTube title noise "
+        "(e.g. '(Official Video)', '[Lyric Video]') from filenames and MB query inputs. "
+        "Each string must be a valid Python regex. When unset, built-in defaults are used.",
     ),
 }
 

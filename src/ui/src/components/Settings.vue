@@ -106,6 +106,58 @@ function onAutoRenameToggle() {
 // ── MusicBrainz ──────────────────────────────────────────────────────────────────
 function saveMbUserAgent() { saveSetting('mb-user-agent', mbUserAgent.value) }
 
+// ── Noise patterns ───────────────────────────────────────────────────────────────
+const noisePatternsOpen = ref(false)
+const noisePatternsText = ref('')
+const noisePatternsStored = ref('')
+
+async function openNoisePatterns() {
+  noisePatternsOpen.value = true
+  try {
+    const res = await fetch('/settings/title-noise-patterns')
+    if (res.ok) {
+      const data = await res.json()
+      if (data.value) {
+        const arr = JSON.parse(data.value)
+        noisePatternsText.value = arr.join('\n')
+        noisePatternsStored.value = noisePatternsText.value
+      } else {
+        noisePatternsText.value = ''
+        noisePatternsStored.value = ''
+      }
+    }
+  } catch { /* daemon not reachable */ }
+}
+
+function cancelNoisePatterns() {
+  noisePatternsText.value = noisePatternsStored.value
+  noisePatternsOpen.value = false
+}
+
+async function saveNoisePatterns() {
+  const patterns = noisePatternsText.value
+    .split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 0)
+  try {
+    const res = await fetch('/settings/title-noise-patterns', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: JSON.stringify(patterns) }),
+    })
+    if (res.ok) {
+      noisePatternsStored.value = noisePatternsText.value
+      showToast('Saved.', 'success')
+      noisePatternsOpen.value = false
+    } else {
+      const data = await res.json().catch(() => ({}))
+      showToast(data.detail || 'Failed to save.', 'error')
+    }
+  } catch {
+    showToast('Could not reach the daemon.', 'error')
+  }
+}
+
 // ── Appearance ───────────────────────────────────────────────────────────────────
 function onThemeToggle() {
   isDark.value = !isDark.value
@@ -235,6 +287,37 @@ async function handleFactoryReset() {
             @keydown.enter="saveMbUserAgent"
           />
           <button class="btn-primary-sm" @click="saveMbUserAgent">Save</button>
+        </div>
+      </div>
+
+      <div class="setting-row setting-row--block">
+        <div class="setting-label-col">
+          <span class="setting-label">Title noise patterns</span>
+          <span class="setting-desc">
+            Regex patterns that strip YouTube noise suffixes (e.g. <code>(Official Video)</code>, <code>[Lyric Video]</code>)
+            from filenames. Each pattern matches content inside <code>( )</code> or <code>[ ]</code> at the end of a title.
+            When unset, built-in defaults are used.
+          </span>
+        </div>
+        <div class="noise-toggle-row">
+          <button v-if="!noisePatternsOpen" class="btn-cancel-sm" @click="openNoisePatterns">
+            Edit noise patterns
+          </button>
+          <template v-else>
+            <textarea
+              v-model="noisePatternsText"
+              class="noise-textarea"
+              placeholder="One pattern per line, e.g.\nofficial video\nlyric video"
+              rows="6"
+            />
+            <span v-if="!noisePatternsStored" class="setting-desc noise-default-note">
+              No patterns saved — built-in defaults are currently active.
+            </span>
+            <div class="noise-actions">
+              <button class="btn-primary-sm" @click="saveNoisePatterns">Save</button>
+              <button class="btn-cancel-sm" @click="cancelNoisePatterns">Cancel</button>
+            </div>
+          </template>
         </div>
       </div>
     </section>
@@ -539,6 +622,39 @@ code {
 }
 .text-input:focus { outline: none; border-color: var(--accent); }
 .text-input::placeholder { color: var(--text-muted); }
+
+/* ── Noise patterns editor ───────────────────────────────────────────────── */
+.noise-toggle-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-self: flex-start;
+}
+
+.noise-textarea {
+  width: 100%;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 12px;
+  font-family: ui-monospace, 'Cascadia Code', monospace;
+  resize: vertical;
+  min-height: 100px;
+  box-sizing: border-box;
+}
+.noise-textarea:focus { outline: none; border-color: var(--accent); }
+
+.noise-default-note {
+  font-style: italic;
+}
+
+.noise-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
 
 /* ── Theme toggle ────────────────────────────────────────────────────────── */
 .theme-toggle-row {

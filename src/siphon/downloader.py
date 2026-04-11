@@ -42,6 +42,7 @@ def download(
     mb_user_agent: Optional[str] = None,
     auto_rename: bool = False,
     on_item_complete: Optional[Callable[[ItemRecord], None]] = None,
+    noise_patterns: Optional[list] = None,
 ) -> None:
     """
     Download a YouTube playlist or single video.
@@ -60,11 +61,13 @@ def download(
                            (e.g. 'Siphon/1.0 (you@example.com)'). When omitted,
                            the MusicBrainz tier of the rename chain is skipped.
         auto_rename:       If True, rename each downloaded file to 'Artist - Track'
-                           using the four-tier rename chain. Defaults to False.
+                           using the three-tier rename chain. Defaults to False.
         on_item_complete:  Optional callable invoked with an ItemRecord after each
                            item has been fully downloaded and renamed. Errors in the
                            callback are caught and logged — they will not abort the
                            download. Requires auto_rename=True to be effective.
+        noise_patterns:    Optional list of inner regex pattern strings passed to
+                           strip_noise(). When None, the built-in defaults are used.
 
     Raises:
         RuntimeError: If mp3 transcoding or mp4/mkv remuxing is requested but ffmpeg
@@ -125,7 +128,7 @@ def download(
     with YoutubeDL(ydl_opts) as ydl:
         if auto_rename:
             ydl.add_post_processor(
-                _RenamePostProcessor(mb_user_agent, on_item_complete=on_item_complete),
+                _RenamePostProcessor(mb_user_agent, on_item_complete=on_item_complete, noise_patterns=noise_patterns),
                 when="after_move",
             )
         ydl.download([url])
@@ -198,17 +201,19 @@ class _RenamePostProcessor(PostProcessor):
         self,
         mb_user_agent: Optional[str],
         on_item_complete: Optional[Callable[[ItemRecord], None]] = None,
+        noise_patterns: Optional[list] = None,
     ) -> None:
         super().__init__()
         self._mb_user_agent = mb_user_agent
         self._on_item_complete = on_item_complete
+        self._noise_patterns = noise_patterns
         if not mb_user_agent:
             logger.debug("renamer: MusicBrainz lookup skipped for this session: --mb-user-agent not configured")
 
     def run(self, info: dict) -> tuple:
         result: Optional[renamer.RenameResult] = None
         try:
-            result = renamer.rename_file(info, self._mb_user_agent)
+            result = renamer.rename_file(info, self._mb_user_agent, noise_patterns=self._noise_patterns)
         except Exception as exc:
             filepath = info.get("filepath") or info.get("filename", "")
             logger.warning("renamer.rename_file raised an error for %s: %s", filepath, exc)
