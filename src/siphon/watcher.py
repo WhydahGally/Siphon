@@ -56,7 +56,7 @@ from yt_dlp import YoutubeDL
 from siphon import registry
 from siphon.downloader import download, ItemRecord
 from siphon.formats import DownloadOptions, VALID_AUDIO_FORMATS, VALID_VIDEO_FORMATS, VALID_RESOLUTIONS, check_ffmpeg
-from siphon.renamer import sanitize as sanitize_name
+from siphon.renamer import sanitize as sanitize_name, _DEFAULT_NOISE_PATTERNS
 
 logger = logging.getLogger(__name__)
 
@@ -881,6 +881,8 @@ async def _lifespan(app: FastAPI):
     global _scheduler, _job_store, _sync_loop
     data_dir = _resolve_data_dir()
     registry.init_db(data_dir)
+    if not registry.get_setting("title_noise_patterns"):
+        registry.set_setting("title_noise_patterns", json.dumps(_DEFAULT_NOISE_PATTERNS))
     _scheduler = PlaylistScheduler()
     _scheduler.start()
     _job_store = JobStore()

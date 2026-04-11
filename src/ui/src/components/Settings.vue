@@ -628,7 +628,8 @@ code {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  align-self: flex-start;
+  align-self: center;
+  min-width: 50%;
 }
 
 .noise-textarea {
