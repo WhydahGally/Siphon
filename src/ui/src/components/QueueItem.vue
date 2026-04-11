@@ -20,7 +20,7 @@ const emit = defineEmits(['retry'])
         <span class="original-title">{{ item.yt_title }}</span>
         <span class="arrow"> → </span>
         <span class="renamed-title">{{ item.renamed_to }}</span>
-        <span v-if="item.rename_tier" class="tier-badge">{{ item.rename_tier }}</span>
+        <span v-if="item.rename_tier" class="tier-badge">{{ item.rename_tier === 'yt_title_fallback' ? 'yt_title' : item.rename_tier }}</span>
       </span>
       <span v-else class="item-title">{{ item.yt_title }}</span>
 
