@@ -60,11 +60,15 @@ The daemon is a FastAPI app; all state is in-process and in-memory (`_job_store`
 
 ---
 
-### 5. Clear is frontend-only filtering
+### 5. Clear is backend-backed via `POST /jobs/{id}/clear-done`
 
-**Chosen:** Clear button filters `done` items out of the local `jobs` ref in Vue. Job blocks with zero remaining items are removed from the array. No API call for Clear.
+**Chosen:** Clear button calls `POST /jobs/{id}/clear-done` on each affected job, then re-fetches `GET /jobs`. The backend physically removes items from the `JobStore`. If a job has no remaining items, it is deleted entirely.
 
-**Rationale:** The backend job store already has `DELETE /jobs/{job_id}` (requires terminal job). But Clear's purpose is just visual cleanup — in-progress jobs can sit alongside cleared-done-rows. A frontend filter is simpler and avoids an API round-trip per job. The progress counter (`N / M`) locks at the job's total item count so it doesn't jump when done rows are cleared.
+**Rationale:** An earlier frontend-only approach (filtering via a `clearedVideoIds` Set) caused multiple bugs: cleared items returned on page reload (backend still held them), Vue reactivity issues with Set tracking, and playlist duplication on re-fetch. Backend-backed clear is reload-safe, simpler to reason about, and eliminates an entire class of state-sync bugs.
+
+**Smart clear behavior:** When `done` items exist alongside `failed`/`cancelled`, only `done` items are cleared (keeping failures for retry). When only `failed`/`cancelled` items remain, all terminal items are cleared. The UI passes `?all=true` query param in the latter case. A dynamic tooltip reflects the current mode ("Clear finished" vs "Clear failed").
+
+**Alternative considered:** Frontend-only `clearedVideoIds` Set filter — rejected after implementation revealed reload-persistence and reactivity bugs.
 
 ---
 
