@@ -356,6 +356,10 @@ class JobStore:
                 job.cancelled = False
         return entries
 
+    def publish_progress(self, job_id: str, data: dict) -> None:
+        """Broadcast an ephemeral progress event to SSE subscribers (no state mutation)."""
+        self._notify(job_id, {"_type": "progress", **data})
+
     def _notify(self, job_id: str, event: Optional[dict]) -> None:
         if self._loop is None:
             return
@@ -534,6 +538,7 @@ def _download_worker(
     mb_user_agent: Optional[str],
     auto_rename: bool = False,
     noise_patterns: Optional[list] = None,
+    on_progress: Optional[Any] = None,
 ) -> Tuple[Optional[ItemRecord], Optional[FailureRecord]]:
     """
     Worker function: download a single video entry.
@@ -571,6 +576,8 @@ def _download_worker(
     def _track_progress(event: dict) -> None:
         if event.get("status") == "finished":
             _file_downloaded.append(True)
+        elif event.get("status") == "downloading" and on_progress is not None:
+            on_progress(event)
 
     start = time.monotonic()
 
@@ -1420,7 +1427,11 @@ async def api_stream_job(job_id: str):
                 if event is None:  # terminal sentinel
                     yield "event: done\ndata: {}\n\n"
                     return
-                yield f"data: {json.dumps(event)}\n\n"
+                if event.get("_type") == "progress":
+                    payload = {k: v for k, v in event.items() if k != "_type"}
+                    yield f"event: progress\ndata: {json.dumps(payload)}\n\n"
+                else:
+                    yield f"data: {json.dumps(event)}\n\n"
         finally:
             _job_store.unsubscribe(job_id, q)
 
@@ -1586,6 +1597,10 @@ def _run_download_job(
             if job is not None and job.cancelled:
                 return None, None
             _job_store.update_item_state(job_id, entry["id"], "downloading")
+        def _on_progress(event: dict) -> None:
+            if _job_store is not None:
+                _job_store.publish_progress(job_id, {"speed": event.get("speed")})
+
         record, failure = _download_worker(
             entry=entry,
             playlist_id=playlist_id,
@@ -1595,6 +1610,7 @@ def _run_download_job(
             mb_user_agent=mb_user_agent,
             auto_rename=auto_rename,
             noise_patterns=noise_patterns,
+            on_progress=_on_progress,
         )
         if failure is not None:
             if _job_store is not None:
