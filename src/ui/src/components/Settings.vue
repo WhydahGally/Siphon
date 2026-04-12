@@ -17,6 +17,7 @@ const mbUserAgent = ref('')
 const isDark = ref(true)
 const logLevel = ref('INFO')
 const version = ref({ siphon: '—', yt_dlp: '—' })
+const logsDir = ref('')
 
 const intervalDisplay = computed(() => secsToHuman(intervalSecs.value))
 
@@ -38,6 +39,14 @@ onMounted(async () => {
   try {
     const res = await fetch('/version')
     if (res.ok) version.value = await res.json()
+  } catch {}
+
+  try {
+    const res = await fetch('/info')
+    if (res.ok) {
+      const data = await res.json()
+      logsDir.value = data.logs_dir || data.db_dir || ''
+    }
   } catch {}
 })
 
@@ -348,28 +357,6 @@ async function handleFactoryReset() {
       </div>
     </section>
 
-    <!-- ── Debugging ──────────────────────────────────────────────────────── -->
-    <section class="settings-section">
-      <h3 class="section-heading">Debugging</h3>
-
-      <div class="setting-row">
-        <div class="setting-label-col">
-          <span class="setting-label">Browser logs</span>
-          <span class="setting-desc">
-            Stream daemon logs to the browser's developer console.
-          </span>
-        </div>
-        <div class="setting-control-col theme-toggle-row">
-          <span class="theme-label" :class="{ active: !browserLogs }">Off</span>
-          <label class="toggle-switch">
-            <input type="checkbox" :checked="browserLogs" @change="onBrowserLogsToggle" />
-            <span class="slider" />
-          </label>
-          <span class="theme-label" :class="{ active: browserLogs }">On</span>
-        </div>
-      </div>
-    </section>
-
     <!-- ── About ───────────────────────────────────────────────────────────── -->
     <section class="settings-section">
       <h3 class="section-heading">About</h3>
@@ -388,11 +375,19 @@ async function handleFactoryReset() {
           target="_blank"
           rel="noopener noreferrer"
         >github.com/WhydahGally/Siphon ↗</a>
+      </div>
 
-        <span class="about-key">Log level</span>
-        <select v-model="logLevel" class="select select--sm" @change="onLogLevelChange">
+      <div class="about-grid" style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">
+        <span class="about-key" :title="logsDir + '/siphon.log'">Log level</span>
+        <select v-model="logLevel" class="select select--sm" :title="logsDir + '/siphon.log'" @change="onLogLevelChange">
           <option v-for="lvl in ['DEBUG', 'INFO', 'WARNING', 'ERROR']" :key="lvl" :value="lvl">{{ lvl }}</option>
         </select>
+
+        <span class="about-key" title="Stream daemon logs to the browser's developer console.">Browser logs</span>
+        <label class="toggle-switch" title="Stream daemon logs to the browser's developer console.">
+          <input type="checkbox" :checked="browserLogs" @change="onBrowserLogsToggle" />
+          <span class="slider" />
+        </label>
       </div>
     </section>
 
@@ -475,6 +470,34 @@ async function handleFactoryReset() {
 
 .section-heading--danger {
   color: var(--error);
+}
+
+.subsection-heading {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  padding: 14px 20px 6px;
+  margin: 0;
+  border-top: 1px solid var(--border);
+}
+
+.info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  margin-left: 4px;
+  border-radius: 50%;
+  border: 1px solid var(--text-muted);
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 700;
+  cursor: help;
+  flex-shrink: 0;
+  vertical-align: middle;
 }
 
 /* ── Setting rows ──────────────────────────────────────────────────────── */
@@ -707,11 +730,13 @@ code {
   column-gap: 16px;
   padding: 16px 20px;
   align-items: center;
+  justify-items: end;
 }
 
 .about-key {
   font-size: 13px;
   color: var(--text-muted);
+  justify-self: start;
 }
 
 .about-val {
