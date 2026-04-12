@@ -10,8 +10,20 @@ const jobs = ref([])
 // Map of job_id → EventSource for open SSE connections
 const eventSources = {}
 
+// Live download speed in bytes/sec (null when no download active)
+const speed = ref(null)
+
 // True while cancel-all is in flight / draining
 const cancelling = ref(false)
+
+function formatSpeed(bytesPerSec) {
+  if (bytesPerSec == null) return ''
+  const units = ['B/s', 'KB/s', 'MB/s', 'GB/s']
+  let val = bytesPerSec
+  let idx = 0
+  while (val >= 1024 && idx < units.length - 1) { val /= 1024; idx++ }
+  return `${val.toFixed(1)} ${units[idx]}`
+}
 
 // --- Sort order (failed first, then active, then cancelled, then done) ---
 const STATE_ORDER = { failed: 0, downloading: 1, pending: 2, cancelled: 3, done: 4 }
@@ -79,9 +91,15 @@ function connectSSE(jobId) {
     item.error = event.error
   }
 
+  es.addEventListener('progress', (e) => {
+    const data = JSON.parse(e.data)
+    speed.value = data.speed
+  })
+
   es.addEventListener('done', () => {
     es.close()
     delete eventSources[jobId]
+    speed.value = null
   })
 
   es.onerror = () => {
@@ -188,6 +206,7 @@ defineExpose({ addJob })
         <h2 class="section-title">Download queue</h2>
         <span v-if="activeJob" class="progress-summary">
           {{ activeJob.items.filter(i => i.state === 'done').length }} / {{ activeJob.original_total || activeJob.items.length }} downloaded
+          <span v-if="speed != null" class="speed-indicator">&nbsp;· {{ formatSpeed(speed) }}</span>
           <span v-if="activeJob.items.filter(i => i.state === 'failed').length > 0" class="failed-count">&nbsp;· {{ activeJob.items.filter(i => i.state === 'failed').length }} failed</span>
         </span>
       </div>
