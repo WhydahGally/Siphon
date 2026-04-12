@@ -266,15 +266,15 @@ async function handleFactoryReset() {
       </div>
     </section>
 
-    <!-- ── MusicBrainz ────────────────────────────────────────────────────── -->
+    <!-- ── Auto Renamer ───────────────────────────────────────────────────── -->
     <section class="settings-section">
-      <h3 class="section-heading">MusicBrainz</h3>
+      <h3 class="section-heading">Auto Renamer</h3>
 
       <div class="setting-row setting-row--block">
         <div class="setting-label-col">
-          <span class="setting-label">User-Agent</span>
+          <span class="setting-label">MusicBrainz user-agent</span>
           <span class="setting-desc">
-            Required for MusicBrainz metadata lookups during auto rename.
+            Required for metadata lookups during auto rename.
             Format: <code>AppName/1.0 (you@example.com)</code><br />
             <span class="setting-hint">Setting this will dismiss the ⚠ warning on Dashboard.</span>
           </span>
@@ -295,7 +295,7 @@ async function handleFactoryReset() {
           <span class="setting-label">Title noise patterns</span>
           <span class="setting-desc">
             Regex patterns that strip YouTube noise suffixes (e.g. <code>(Official Video)</code>, <code>[Lyric Video]</code>)
-            from filenames. Each pattern matches content inside <code>( )</code> or <code>[ ]</code> at the end of a title.
+            from filenames.<br />Each pattern matches content inside <code>( )</code> or <code>[ ]</code> at the end of a title.
             When unset, built-in defaults are used.
           </span>
         </div>
