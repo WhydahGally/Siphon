@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Three-tier rename chain
 After a file is fully downloaded and postprocessed, the renamer SHALL attempt to resolve a clean `Artist - Track` name by trying three strategies in order. The first strategy that produces a confident result SHALL be used. The file on disk SHALL be renamed to the resolved name, preserving its extension. The renamer SHALL return a `RenameResult` dataclass on every code path.
@@ -49,7 +49,7 @@ Normalization for all comparisons: lowercase the string, replace all non-alphanu
 - AND normalized(mb_track) is a contiguous substring of (normalized(yt_title) with the first occurrence of normalized(mb_primary_artist) removed)
 
 **UPLOADER_MATCH path:**
-- normalized(mb_track) is a contiguous substring of normalized(yt_title) with the first occurrence of normalized(mb_primary_artist) removed (consistent with the BOTH_IN_TITLE artist-exclusion step; in practice a no-op when the artist is not in the title)
+- normalized(mb_track) is a contiguous substring of normalized(yt_title)
 - AND normalized(uploader) equals normalized(mb_primary_artist) exactly
 
 If neither path passes, the result SHALL be rejected.
@@ -75,6 +75,20 @@ If neither path passes, the result SHALL be rejected.
 - **THEN** the validator SHALL reject the result regardless of phrase matching results
 
 ---
+
+## REMOVED Requirements
+
+### Requirement: Title separator tier (tier 1.5)
+**Reason:** The separator was designed as a hint for MusicBrainz, never as a standalone resolver. Testing showed it cannot determine split direction reliably and produces wrong filenames when hyphenated artist names (e.g. Alt-J, A-ha) are present. The separator tier is replaced by the free-text MusicBrainz query with phrase-match validation.
+**Migration:** No migration required. Items previously resolved via `title_separator` will be resolved by MusicBrainz (`BOTH_IN_TITLE` or `UPLOADER_MATCH`) or fall to `yt_title_fallback`. Existing DB rows with `rename_tier = "title_separator"` are not migrated (beta reset).
+
+### Requirement: MusicBrainz token overlap scoring
+**Reason:** Token-bag overlap is order-insensitive and allows scrambled words to pass. Replaced by the phrase-match validator (see modified requirements above), which is order-sensitive and checks directional substring containment with artist exclusion.
+**Migration:** No migration required. The phrase-match validator supersedes this requirement entirely.
+
+---
+
+## ADDED Requirements
 
 ### Requirement: YT noise stripping
 The renamer SHALL expose a `strip_noise(title, patterns)` function that strips common YouTube title suffixes from a string. The function SHALL apply the noise patterns iteratively until no further matches are found (handles multiple suffixes). Noise stripping SHALL be applied:
@@ -116,92 +130,7 @@ When the cleaned YT title contains any of the recognised separator characters (`
 - **WHEN** the cleaned title contains none of the recognised separator characters
 - **THEN** no separator log line SHALL be emitted
 
----
-
-### Requirement: Featured artist formatting
-When a MusicBrainz recording has multiple entries in its `artist-credit` list, the renamer SHALL include featured artists in the output name.
-
-#### Scenario: Single artist in MB result
-- **WHEN** the MusicBrainz recording has exactly one artist credit
-- **THEN** the output SHALL be `"Artist - Track"` with no featuring suffix
-
-#### Scenario: Multiple artists in MB result
-- **WHEN** the MusicBrainz recording has more than one artist credit
-- **THEN** the output SHALL be `"PrimaryArtist - Track feat. Artist2"` where additional artists are joined with `, ` if more than two featured
-
----
-
-### Requirement: Filename sanitization
-The resolved name SHALL be sanitized before use as a filename by stripping characters that are illegal on common filesystems.
-
-#### Scenario: Name contains filesystem-unsafe characters
-- **WHEN** the resolved name contains any of `/ \ : * ? " < > |`
-- **THEN** the renamer SHALL strip those characters before constructing the final filename
-
-#### Scenario: Name is safe
-- **WHEN** the resolved name contains no filesystem-unsafe characters
-- **THEN** the renamer SHALL use it unchanged
-
----
-
-### Requirement: File extension preserved
-The rename operation SHALL preserve the original file extension.
-
-#### Scenario: File has an extension
-- **WHEN** the original file is `some-title.mp3`
-- **THEN** the renamed file SHALL be `Artist - Track.mp3`
-
----
-
-### Requirement: Rename failure is non-fatal
-If the rename operation fails (e.g. permissions error, file not found), the renamer SHALL log a WARNING and leave the original file untouched. It SHALL NOT raise an exception that would abort the download session.
-
-#### Scenario: OS rename fails
-- **WHEN** `os.rename()` raises an `OSError`
-- **THEN** the renamer SHALL catch the exception, log a WARNING with the original path and error, and return without aborting
-
----
-
-### Requirement: MusicBrainz User-Agent configuration
-The MusicBrainz tier SHALL only be active when a User-Agent string has been supplied. The User-Agent is passed as the `mb_user_agent` parameter to the rename chain and is set once per download session via the `--mb-user-agent` CLI argument.
-
-#### Scenario: User-Agent provided
-- **WHEN** `--mb-user-agent` is passed at CLI and is non-empty
-- **THEN** the renamer SHALL include tier 2 in the chain for all files in that session
-
-#### Scenario: User-Agent not provided
-- **WHEN** `--mb-user-agent` is absent or empty
-- **THEN** the renamer SHALL skip tier 2 for all files in that session and log a single DEBUG message at session start
-
----
-
-### Requirement: MusicBrainz rate limiting
-The renamer SHALL enforce a maximum of one MusicBrainz HTTP request per second across all concurrent callers within the same process.
-
-#### Scenario: Single caller makes sequential requests
-- **WHEN** two MusicBrainz lookups are made in sequence
-- **THEN** the second request SHALL NOT be sent until at least 1 second has elapsed since the first
-
-#### Scenario: Multiple concurrent callers attempt MB lookup simultaneously
-- **WHEN** multiple threads attempt a MusicBrainz lookup at the same time
-- **THEN** requests SHALL be serialized via a global lock such that no two requests are sent within the same 1-second window
-
----
-
-### Requirement: MusicBrainz network failure handling
-If the MusicBrainz HTTP request fails for any reason (network error, timeout, non-200 response), the renamer SHALL fall through to tier 3 without aborting.
-
-#### Scenario: Network error during MB lookup
-- **WHEN** the HTTP request to MusicBrainz raises a `requests.RequestException`
-- **THEN** the renamer SHALL log a WARNING and proceed to tier 3
-
-#### Scenario: MusicBrainz returns non-200 response
-- **WHEN** the HTTP response status code is not 200
-- **THEN** the renamer SHALL log a WARNING and proceed to tier 3
-
----
-
-### Requirement: Opt-in rename activation
+### Requirement: Opt-in rename activation (updated tier count)
 The rename chain SHALL only execute when explicitly enabled. Enabling without opt-in must not alter existing download behaviour.
 
 #### Scenario: Auto-rename disabled (default)

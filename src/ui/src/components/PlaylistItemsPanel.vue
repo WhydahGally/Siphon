@@ -16,27 +16,21 @@ defineProps({
       No items downloaded yet.
     </div>
 
-    <RecycleScroller
-      v-else
-      class="scroller"
-      :items="items"
-      :item-size="40"
-      key-field="video_id"
-    >
-      <template #default="{ item }">
-        <div class="panel-item">
+    <div v-else class="scroller">
+      <div class="scroll-inner">
+        <div v-for="item in items" :key="item.video_id" class="panel-item">
           <div class="item-titles">
             <span v-if="item.renamed_to" class="item-title">
               <span class="original">{{ item.yt_title }}</span>
               <span class="arrow"> → </span>
               <span class="renamed">{{ item.renamed_to }}</span>
-              <span v-if="item.rename_tier" class="tier-badge">{{ item.rename_tier }}</span>
+              <span v-if="item.rename_tier" class="tier-badge">{{ item.rename_tier === 'yt_title_fallback' ? 'yt_title' : item.rename_tier }}</span>
             </span>
             <span v-else class="item-title plain">{{ item.yt_title }}</span>
           </div>
         </div>
-      </template>
-    </RecycleScroller>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -51,6 +45,12 @@ defineProps({
 .scroller {
   max-height: 70vh;
   overflow-y: auto;
+  overflow-x: auto;
+}
+
+.scroll-inner {
+  width: max-content;
+  min-width: 100%;
 }
 
 .panel-loading,
@@ -68,25 +68,17 @@ defineProps({
   align-items: center;
   padding: 0 20px;
   height: 40px;
-  border-bottom: 1px solid var(--border);
   box-sizing: border-box;
-}
-
-.panel-item:last-child {
-  border-bottom: none;
 }
 
 .item-titles {
   flex: 1;
-  min-width: 0;
 }
 
 .item-title {
   display: block;
   font-size: 13px;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .item-title.plain {

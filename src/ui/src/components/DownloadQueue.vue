@@ -158,20 +158,9 @@ defineExpose({ addJob })
     </div>
 
     <div class="queue-body">
-      <div v-for="job in playlistJobs" :key="job.job_id" class="job-block">
-        <div v-if="job.playlist_name" class="job-name">{{ job.playlist_name }}</div>
-        <QueueItem
-          v-for="item in sortedItems(job.items)"
-          :key="item.video_id"
-          :item="item"
-          :job-id="job.job_id"
-          @retry="retryFailed"
-        />
-      </div>
-
-      <div v-if="singleJobs.length > 0" class="job-block">
-        <div class="job-name">Default</div>
-        <template v-for="job in singleJobs" :key="job.job_id">
+      <div class="queue-inner">
+        <div v-for="job in playlistJobs" :key="job.job_id" class="job-block">
+          <div v-if="job.playlist_name" class="job-name">{{ job.playlist_name }}</div>
           <QueueItem
             v-for="item in sortedItems(job.items)"
             :key="item.video_id"
@@ -179,7 +168,20 @@ defineExpose({ addJob })
             :job-id="job.job_id"
             @retry="retryFailed"
           />
-        </template>
+        </div>
+
+        <div v-if="singleJobs.length > 0" class="job-block">
+          <div class="job-name">Default</div>
+          <template v-for="job in singleJobs" :key="job.job_id">
+            <QueueItem
+              v-for="item in sortedItems(job.items)"
+              :key="item.video_id"
+              :item="item"
+              :job-id="job.job_id"
+              @retry="retryFailed"
+            />
+          </template>
+        </div>
       </div>
     </div>
   </section>
@@ -267,6 +269,12 @@ defineExpose({ addJob })
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: auto;
+}
+
+.queue-inner {
+  width: max-content;
+  min-width: 100%;
 }
 
 .job-block {

@@ -20,7 +20,7 @@ const emit = defineEmits(['retry'])
         <span class="original-title">{{ item.yt_title }}</span>
         <span class="arrow"> → </span>
         <span class="renamed-title">{{ item.renamed_to }}</span>
-        <span v-if="item.rename_tier" class="tier-badge">{{ item.rename_tier }}</span>
+        <span v-if="item.rename_tier" class="tier-badge">{{ item.rename_tier === 'yt_title_fallback' ? 'yt_title' : item.rename_tier }}</span>
       </span>
       <span v-else class="item-title">{{ item.yt_title }}</span>
 
@@ -100,7 +100,6 @@ const emit = defineEmits(['retry'])
 
 .item-info {
   flex: 1;
-  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -111,8 +110,6 @@ const emit = defineEmits(['retry'])
   font-size: 14px;
   color: var(--text);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .original-title {
@@ -147,8 +144,6 @@ const emit = defineEmits(['retry'])
   font-size: 12px;
   color: var(--error);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .btn-retry {

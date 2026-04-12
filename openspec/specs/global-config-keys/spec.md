@@ -67,6 +67,31 @@ The daemon SHALL expose a `POST /factory-reset` endpoint that performs a full da
 
 ---
 
+### Requirement: `title-noise-patterns` global config key
+`title-noise-patterns` SHALL be added to `_KNOWN_KEYS` with db key `title_noise_patterns`. The value SHALL be stored as a JSON-encoded array of regex pattern strings. The CLI `siphon config title-noise-patterns` SHALL read and write this key.
+
+On daemon startup, if the key has never been set, the daemon SHALL seed the DB with the built-in default pattern list so that `GET /settings/title-noise-patterns` always returns a populated value after the first run. Saving an empty JSON array `[]` explicitly disables noise filtering (the renamer will not strip any patterns). Deleting or nullifying the stored value restores default behaviour on the next restart.
+
+`PUT /settings/title-noise-patterns` SHALL validate that the submitted value is a valid JSON array of strings. Each string SHALL be validated as a compilable Python regex before storing. If validation fails the response SHALL be `400 Bad Request` with a message identifying the invalid pattern.
+
+#### Scenario: Read after first startup
+- **WHEN** `GET /settings/title-noise-patterns` is called after the daemon has started at least once
+- **THEN** the response SHALL contain the default pattern array (seeded on first start)
+
+#### Scenario: Write valid patterns
+- **WHEN** `PUT /settings/title-noise-patterns` is called with a valid JSON array of regex strings
+- **THEN** the value SHALL be stored and subsequent reads SHALL return the same array
+
+#### Scenario: Write invalid JSON rejected
+- **WHEN** `PUT /settings/title-noise-patterns` is called with a value that is not valid JSON or not a JSON array
+- **THEN** the response SHALL be `400 Bad Request`
+
+#### Scenario: Write invalid regex rejected
+- **WHEN** `PUT /settings/title-noise-patterns` is called with a JSON array containing a string that is not a valid Python regex
+- **THEN** the response SHALL be `400 Bad Request` with a message identifying the offending pattern
+
+---
+
 ### Requirement: Theme initialisation before Vue mount
 `main.js` SHALL call `GET /settings/theme` before mounting the Vue application. If the returned value is `"light"`, it SHALL set `document.documentElement.dataset.theme = "light"` before calling `app.mount()`. If the daemon is unreachable or the value is `"dark"` / absent, no attribute SHALL be set and the dark default applies.
 
