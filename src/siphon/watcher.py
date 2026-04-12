@@ -108,6 +108,11 @@ class DownloadJob:
     playlist_name: Optional[str]
     items: List[JobItem]
     created_at: float
+    cancelled: bool = False
+    original_total: int = field(default=0, init=False)
+
+    def __post_init__(self):
+        self.original_total = len(self.items)
 
     @property
     def total(self) -> int:
@@ -122,7 +127,7 @@ class DownloadJob:
         return sum(1 for i in self.items if i.state == "failed")
 
     def is_terminal(self) -> bool:
-        return bool(self.items) and all(i.state in ("done", "failed") for i in self.items)
+        return bool(self.items) and all(i.state in ("done", "failed", "cancelled") for i in self.items)
 
 
 class JobStore:
@@ -186,6 +191,72 @@ class JobStore:
         oldest_id = min(terminal, key=lambda t: t[1].created_at)[0]
         del self._jobs[oldest_id]
         self._queues.pop(oldest_id, None)
+
+    def cancel_all_jobs(self) -> int:
+        """Mark all pending items in non-terminal playlist jobs as cancelled.
+
+        Items already downloading are not interrupted — they drain to completion.
+        Single-video jobs (playlist_id is None) are not affected.
+        Returns the count of items transitioned to cancelled.
+        """
+        events: List[tuple] = []
+        notify_ids: List[str] = []
+        with self._lock:
+            for job in self._jobs.values():
+                if job.is_terminal():
+                    continue
+                if job.playlist_id is None:
+                    continue
+                job.cancelled = True
+                for item in job.items:
+                    if item.state == "pending":
+                        item.state = "cancelled"
+                        events.append((job.job_id, {
+                            "job_id": job.job_id,
+                            "video_id": item.video_id,
+                            "state": "cancelled",
+                            "yt_title": item.yt_title,
+                            "renamed_to": item.renamed_to,
+                            "rename_tier": item.rename_tier,
+                            "error": item.error,
+                        }))
+                if job.is_terminal():
+                    notify_ids.append(job.job_id)
+        for job_id, event in events:
+            self._notify(job_id, event)
+        for job_id in notify_ids:
+            self.notify_terminal(job_id)
+        return len(events)
+
+    def clear_done_items(self, job_id: str, clear_all: bool = False) -> int:
+        """Remove terminal items from a job's items list.
+
+        When clear_all is False, only 'done' items are removed (failed/cancelled
+        are kept so the user can retry them). When clear_all is True, all terminal
+        items (done, failed, cancelled) are removed.
+
+        If the job becomes empty, it is deleted from the store and any
+        lingering SSE connections are closed via notify_terminal.
+        Returns the count of items removed.
+        """
+        terminal_states = {"done", "failed", "cancelled"} if clear_all else {"done"}
+        delete_job = False
+        removed = 0
+        with self._lock:
+            job = self._jobs.get(job_id)
+            if job is None:
+                return 0
+            before = len(job.items)
+            job.items = [i for i in job.items if i.state not in terminal_states]
+            removed = before - len(job.items)
+            if removed and not job.items:
+                delete_job = True
+        if delete_job:
+            self.notify_terminal(job_id)  # close any lingering SSE connections
+            with self._lock:
+                self._jobs.pop(job_id, None)
+                self._queues.pop(job_id, None)
+        return removed
 
     def get_job(self, job_id: str) -> Optional[DownloadJob]:
         with self._lock:
@@ -268,19 +339,21 @@ class JobStore:
                     pass
 
     def reset_failed_items(self, job_id: str) -> List[dict]:
-        """Reset all failed items to pending. Returns entries list for re-dispatch."""
+        """Reset all failed and cancelled items to pending. Returns entries list for re-dispatch."""
         entries: List[dict] = []
         with self._lock:
             job = self._jobs.get(job_id)
             if job is None:
                 return entries
             for item in job.items:
-                if item.state == "failed":
+                if item.state in ("failed", "cancelled"):
                     item.state = "pending"
                     item.error = None
                     item.started_at = None
                     item.finished_at = None
                     entries.append({"id": item.video_id, "url": item.url, "title": item.yt_title})
+            if entries:
+                job.cancelled = False
         return entries
 
     def _notify(self, job_id: str, event: Optional[dict]) -> None:
@@ -1373,6 +1446,22 @@ def api_delete_job(job_id: str):
         raise HTTPException(status_code=404, detail="Job not found.")
 
 
+@app.post("/jobs/cancel-all")
+def api_cancel_all_jobs():
+    if _job_store is None:
+        raise HTTPException(status_code=503, detail="Job store not initialized.")
+    count = _job_store.cancel_all_jobs()
+    return {"cancelled": count}
+
+
+@app.post("/jobs/{job_id}/clear-done", status_code=200)
+def api_clear_done_items(job_id: str, all: bool = False):
+    if _job_store is None:
+        raise HTTPException(status_code=503, detail="Job store not initialized.")
+    removed = _job_store.clear_done_items(job_id, clear_all=all)
+    return {"cleared": removed}
+
+
 @app.post("/jobs/{job_id}/retry-failed")
 def api_retry_failed_job(job_id: str):
     if _job_store is None:
@@ -1434,6 +1523,7 @@ def _job_to_dict(job: DownloadJob) -> dict:
         "playlist_name": job.playlist_name,
         "created_at": job.created_at,
         "total": job.total,
+        "original_total": job.original_total,
         "done": job.done_count,
         "failed": job.failed_count,
         "items": [
@@ -1490,7 +1580,11 @@ def _run_download_job(
         return
 
     def run_item(entry: dict) -> Tuple[Optional[ItemRecord], Optional[FailureRecord]]:
+        # Check cancel flag before starting; skip without downloading if cancelled.
         if _job_store is not None:
+            job = _job_store.get_job(job_id)
+            if job is not None and job.cancelled:
+                return None, None
             _job_store.update_item_state(job_id, entry["id"], "downloading")
         record, failure = _download_worker(
             entry=entry,
@@ -1738,6 +1832,18 @@ def _sync_parallel(
         _sync_info.pop(playlist_id, None)
         _syncing_playlists.discard(playlist_id)
         _broadcast_sync_event("sync_done", playlist_id)
+
+
+def cmd_cancel(args: argparse.Namespace) -> int:
+    result = _daemon_post("/jobs/cancel-all")
+    if result is None:
+        return 1
+    count = result.get("cancelled", 0)
+    if count == 0:
+        logger.info("No active downloads to cancel.")
+    else:
+        logger.info("Cancelled %d pending item(s).", count)
+    return 0
 
 
 def cmd_sync(args: argparse.Namespace) -> int:
@@ -2116,6 +2222,9 @@ def main() -> None:
     p_add.add_argument("--auto-rename", dest="auto_rename", action="store_true", default=False,
                        help="Enable auto-rename for this playlist.")
 
+    # -- cancel --
+    sub.add_parser("cancel", help="Cancel all active download jobs.")
+
     # -- sync --
     p_sync = sub.add_parser("sync", help="Download new items for registered playlists.")
     p_sync.add_argument("name", nargs="?", default=None, help="Playlist name to sync (default: all).")
@@ -2158,6 +2267,7 @@ def main() -> None:
     dispatch = {
         "watch": cmd_watch,
         "add": cmd_add,
+        "cancel": cmd_cancel,
         "sync": cmd_sync,
         "sync-failed": cmd_sync_failed,
         "list": cmd_list,
