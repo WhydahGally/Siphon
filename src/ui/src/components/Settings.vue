@@ -12,7 +12,7 @@ const maxConcurrent = ref(5)
 const intervalSecs = ref(86400)
 const editingInterval = ref(false)
 const intervalInput = ref('')
-const { autoRename: autoRenameGlobal, loaded: settingsLoaded } = useSettings()
+const { autoRename: autoRenameGlobal, browserLogs, loaded: settingsLoaded } = useSettings()
 const mbUserAgent = ref('')
 const isDark = ref(true)
 const logLevel = ref('INFO')
@@ -171,6 +171,12 @@ function onThemeToggle() {
 
 // ── About ─────────────────────────────────────────────────────────────────────────
 function onLogLevelChange() { saveSetting('log-level', logLevel.value, true) }
+
+// ── Debugging ─────────────────────────────────────────────────────────────────────
+function onBrowserLogsToggle() {
+  browserLogs.value = !browserLogs.value
+  saveSetting('browser-logs', browserLogs.value ? 'on' : 'off', true)
+}
 
 // ── Danger zone ───────────────────────────────────────────────────────────────────
 async function handleDeleteAllPlaylists() {
@@ -338,6 +344,28 @@ async function handleFactoryReset() {
             <span class="slider" />
           </label>
           <span class="theme-label" :class="{ active: !isDark }">Light</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Debugging ──────────────────────────────────────────────────────── -->
+    <section class="settings-section">
+      <h3 class="section-heading">Debugging</h3>
+
+      <div class="setting-row">
+        <div class="setting-label-col">
+          <span class="setting-label">Browser logs</span>
+          <span class="setting-desc">
+            Stream daemon logs to the browser's developer console.
+          </span>
+        </div>
+        <div class="setting-control-col theme-toggle-row">
+          <span class="theme-label" :class="{ active: !browserLogs }">Off</span>
+          <label class="toggle-switch">
+            <input type="checkbox" :checked="browserLogs" @change="onBrowserLogsToggle" />
+            <span class="slider" />
+          </label>
+          <span class="theme-label" :class="{ active: browserLogs }">On</span>
         </div>
       </div>
     </section>

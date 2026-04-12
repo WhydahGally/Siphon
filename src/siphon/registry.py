@@ -1,3 +1,4 @@
+import logging
 import os
 import sqlite3
 import threading
@@ -5,6 +6,8 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from siphon.downloader import ItemRecord
+
+logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -106,11 +109,13 @@ def init_db(data_dir: str) -> None:
     ):
         try:
             conn.execute(stmt)
+            logger.debug("Running migration: %s", stmt)
         except sqlite3.OperationalError:
-            pass  # column already exists
+            logger.debug("Migration already applied: %s", stmt.split("ADD COLUMN ")[1].split()[0] if "ADD COLUMN" in stmt else stmt)
     conn.commit()
     # Store as the calling thread's connection.
     _local.conn = conn
+    logger.info("Database initialized at %s", os.path.join(data_dir, 'siphon.db'))
 
 
 def _open_conn(data_dir: str) -> sqlite3.Connection:
@@ -137,6 +142,7 @@ def _get_conn() -> sqlite3.Connection:
     if conn is None:
         conn = _open_conn(_data_dir)
         _local.conn = conn
+        logger.debug("New DB connection for thread %s", threading.current_thread().ident)
     return conn
 
 
@@ -187,6 +193,8 @@ def add_playlist(
     )
     conn.commit()
 
+    logger.info("Playlist registered: %s (%s)", name, playlist_id)
+
 
 def list_playlists() -> list:
     """Return all playlists ordered by added_at ascending."""
@@ -222,6 +230,7 @@ def delete_playlist(playlist_id: str) -> None:
         conn.execute("DELETE FROM failed_downloads WHERE playlist_id = ?", (playlist_id,))
         conn.execute("DELETE FROM ignored_items WHERE playlist_id = ?", (playlist_id,))
         conn.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,))
+    logger.info("Playlist removed: %s", playlist_id)
 
 
 def get_playlist_by_id(playlist_id: str) -> Optional[sqlite3.Row]:
@@ -368,6 +377,7 @@ def set_setting(key: str, value: str) -> None:
         (key, value),
     )
     conn.commit()
+    logger.debug("Setting updated: %s=%s", key, value)
 
 
 def get_setting(key: str) -> Optional[str]:

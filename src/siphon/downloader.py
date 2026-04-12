@@ -118,11 +118,10 @@ def download(
     # Build the yt-dlp options dict.
     ydl_opts = _build_ydl_opts(options, output_template, progress_callback, mb_user_agent)
 
-    logger.debug(
-        "Starting download | url=%s | mode=%s | output_dir=%s",
+    logger.info(
+        "Starting download: %s (mode=%s)",
         url,
         options.mode,
-        output_dir,
     )
 
     with YoutubeDL(ydl_opts) as ydl:
@@ -133,7 +132,7 @@ def download(
             )
         ydl.download([url])
 
-    logger.debug("Download session complete for url=%s", url)
+    logger.info("Download complete: %s", url)
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +186,7 @@ def _build_ydl_opts(
         ydl_opts["postprocessors"] = build_audio_postprocessors(options.audio_format)
         logger.debug("Audio format: %s | postprocessors: %s", options.audio_format, ydl_opts["postprocessors"])
 
+    logger.debug("Postprocessor chain: %s", ydl_opts.get('postprocessors', []))
     return ydl_opts
 
 
