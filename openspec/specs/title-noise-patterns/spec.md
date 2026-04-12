@@ -19,6 +19,10 @@ The renamer module SHALL expose a `strip_noise(title, patterns)` function. This 
 - **WHEN** a non-empty custom pattern list is supplied
 - **THEN** only those patterns SHALL be used (built-in defaults SHALL NOT apply)
 
-#### Scenario: Empty pattern list — no stripping
-- **WHEN** an empty list is supplied
-- **THEN** the title SHALL be returned unchanged
+#### Scenario: Empty pattern list — no stripping (disable)
+- **WHEN** an empty list `[]` is supplied
+- **THEN** the title SHALL be returned unchanged (noise filtering is disabled)
+
+#### Scenario: None pattern list — use defaults
+- **WHEN** `None` is supplied as the pattern list
+- **THEN** the built-in default patterns SHALL be used

@@ -175,7 +175,8 @@ def strip_noise(title: str, patterns: Optional[list] = None) -> str:
     Strip common YouTube title suffixes such as (Official Video), [Lyric Video], etc.
 
     Patterns are inner regex strings matched inside ( ) or [ ] at the end of the title.
-    Uses _DEFAULT_NOISE_PATTERNS when patterns is None. Pass [] to disable filtering.
+    - patterns=None  → use built-in defaults (_DEFAULT_NOISE_PATTERNS)
+    - patterns=[]    → no stripping (noise filtering disabled)
     Applied iteratively until no further matches are found.
     """
     active = _DEFAULT_NOISE_PATTERNS if patterns is None else patterns

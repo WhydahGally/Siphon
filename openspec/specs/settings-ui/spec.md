@@ -68,7 +68,7 @@ The MusicBrainz section SHALL contain a labelled text input for the `mb-user-age
 ---
 
 ### Requirement: MusicBrainz section — title noise patterns editor
-The MusicBrainz section SHALL contain a collapsible noise patterns editor below the user-agent input. A labelled button ("Edit noise patterns") SHALL toggle the visibility of the editor. When expanded, the editor SHALL display a textarea pre-populated with the currently stored `title-noise-patterns` value (one pattern per line). If no value is stored, the textarea SHALL be empty and a muted description SHALL state that the built-in defaults are active. An explicit Save button SHALL call `PUT /settings/title-noise-patterns` and show a success toast. A Cancel button SHALL collapse the editor and discard unsaved changes. The editor SHALL be collapsed by default.
+The MusicBrainz section SHALL contain a collapsible noise patterns editor below the user-agent input. A labelled button ("Edit noise patterns") SHALL toggle the visibility of the editor. When expanded, the editor SHALL display a textarea pre-populated with the currently stored `title-noise-patterns` value (one pattern per line). Because the daemon seeds the default pattern list on first startup, the textarea will always be pre-populated on a running system. An explicit Save button SHALL call `PUT /settings/title-noise-patterns` and show a success toast. Saving an empty textarea SHALL store an empty JSON array `[]`, which disables noise filtering. A Cancel button SHALL collapse the editor and discard unsaved changes. The editor SHALL be collapsed by default.
 
 #### Scenario: Editor collapsed on page load
 - **WHEN** the Settings page mounts
@@ -81,6 +81,10 @@ The MusicBrainz section SHALL contain a collapsible noise patterns editor below 
 #### Scenario: Editor expands with no stored patterns
 - **WHEN** the user clicks "Edit noise patterns" and no patterns are stored
 - **THEN** the textarea SHALL be empty and a muted note SHALL indicate that built-in defaults are in use
+
+#### Scenario: Save with empty textarea — disables noise filtering
+- **WHEN** the user clears the textarea and presses Save
+- **THEN** `PUT /settings/title-noise-patterns` SHALL be called with `"[]"` and a success toast SHALL appear; subsequent downloads SHALL have no noise patterns stripped
 
 #### Scenario: Save persists patterns
 - **WHEN** the user edits the textarea and presses Save

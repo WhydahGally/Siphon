@@ -444,7 +444,7 @@ def _get_noise_patterns() -> Optional[list]:
     """Load title-noise-patterns from settings DB. Returns None when unset."""
     import json as _json
     raw = registry.get_setting("title_noise_patterns")
-    if not raw:
+    if raw is None:
         return None
     try:
         return _json.loads(raw)

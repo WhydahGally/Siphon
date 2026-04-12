@@ -49,7 +49,7 @@ Normalization for all comparisons: lowercase the string, replace all non-alphanu
 - AND normalized(mb_track) is a contiguous substring of (normalized(yt_title) with the first occurrence of normalized(mb_primary_artist) removed)
 
 **UPLOADER_MATCH path:**
-- normalized(mb_track) is a contiguous substring of normalized(yt_title)
+- normalized(mb_track) is a contiguous substring of normalized(yt_title) with the first occurrence of normalized(mb_primary_artist) removed (consistent with the BOTH_IN_TITLE artist-exclusion step; in practice a no-op when the artist is not in the title)
 - AND normalized(uploader) equals normalized(mb_primary_artist) exactly
 
 If neither path passes, the result SHALL be rejected.
