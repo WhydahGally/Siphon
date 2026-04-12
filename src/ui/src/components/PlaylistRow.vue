@@ -303,6 +303,7 @@ defineExpose({ clearSyncing })
 .row-left {
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 20px;
   padding: 12px 16px 12px 14px;
   min-width: 0;
@@ -387,6 +388,7 @@ defineExpose({ clearSyncing })
 }
 
 .btn-sync {
+  width: 96px;
   background: none;
   border: 1px solid var(--accent);
   color: var(--accent);

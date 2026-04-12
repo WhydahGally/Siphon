@@ -68,12 +68,7 @@ defineProps({
   align-items: center;
   padding: 0 20px;
   height: 40px;
-  border-bottom: 1px solid var(--border);
   box-sizing: border-box;
-}
-
-.panel-item:last-child {
-  border-bottom: none;
 }
 
 .item-titles {
