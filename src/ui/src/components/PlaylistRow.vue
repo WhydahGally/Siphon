@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import ConfirmButton from './ConfirmButton.vue'
 import PlaylistItemsPanel from './PlaylistItemsPanel.vue'
 import { secsToHuman, ddhhmmssToSecs, secsToDdhhmmss } from '../utils/interval.js'
@@ -136,6 +136,24 @@ function formatSyncedDate(iso) {
 }
 
 defineExpose({ clearSyncing })
+
+// Marquee: scroll playlist name if it overflows the column
+const titleContainerRef = ref(null)
+const titleTextRef = ref(null)
+const shouldMarquee = ref(false)
+const marqueeDuration = ref('8s')
+const marqueeShift = ref('0px')
+
+onMounted(() => {
+  const container = titleContainerRef.value
+  const text = titleTextRef.value
+  if (container && text && text.scrollWidth > container.clientWidth) {
+    shouldMarquee.value = true
+    const dist = text.scrollWidth - container.clientWidth
+    marqueeDuration.value = Math.max(4, Math.round(dist / 60)) + 's'
+    marqueeShift.value = `-${dist}px`
+  }
+})
 </script>
 
 <template>
@@ -154,8 +172,13 @@ defineExpose({ clearSyncing })
 
       <!-- col-2: title + sync button -->
       <div class="row-left">
-        <div class="row-title-line">
-          <span class="playlist-name">{{ playlist.name }}</span>
+        <div ref="titleContainerRef" class="row-title-line">
+          <span
+            ref="titleTextRef"
+            class="playlist-name"
+            :class="{ marquee: shouldMarquee }"
+            :style="shouldMarquee ? { '--marquee-duration': marqueeDuration, '--marquee-shift': marqueeShift } : {}"
+          >{{ playlist.name }}</span>
         </div>
         <button class="btn-sync" :style="{ visibility: syncing ? 'hidden' : 'visible' }" @click="triggerSync">Sync now</button>
       </div>
@@ -256,7 +279,7 @@ defineExpose({ clearSyncing })
 /* ── Four-column body ───────────────────────────────────────── */
 .row-body {
   display: grid;
-  grid-template-columns: 52px auto 1fr 76px;
+  grid-template-columns: 52px 250px 1fr 76px;
   align-items: stretch;
 }
 
@@ -321,6 +344,8 @@ defineExpose({ clearSyncing })
   display: flex;
   align-items: center;
   gap: 8px;
+  overflow: hidden;
+  width: 100%;
 }
 
 .row-meta-slot {
@@ -344,8 +369,18 @@ defineExpose({ clearSyncing })
   font-weight: 600;
   color: var(--text);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  display: inline-block;
+}
+
+.playlist-name.marquee {
+  animation: marquee-scroll var(--marquee-duration, 8s) linear infinite;
+}
+
+@keyframes marquee-scroll {
+  0%   { transform: translateX(0); }
+  40%  { transform: translateX(0); }
+  90%  { transform: translateX(var(--marquee-shift, 0px)); }
+  100% { transform: translateX(0); }
 }
 
 .sync-indicator {
