@@ -3,7 +3,6 @@ defineProps({
   item: { type: Object, required: true },
   jobId: { type: String, required: true },
 })
-const emit = defineEmits(['retry'])
 </script>
 
 <template>
@@ -12,6 +11,7 @@ const emit = defineEmits(['retry'])
       <span v-if="item.state === 'downloading'" class="spinner" />
       <span v-else-if="item.state === 'done'" class="check">✓</span>
       <span v-else-if="item.state === 'failed'" class="cross">✕</span>
+      <span v-else-if="item.state === 'cancelled'" class="dash">–</span>
       <span v-else class="dot" />
     </span>
 
@@ -26,14 +26,6 @@ const emit = defineEmits(['retry'])
 
       <span v-if="item.state === 'failed' && item.error" class="item-error">{{ item.error }}</span>
     </div>
-
-    <button
-      v-if="item.state === 'failed'"
-      class="btn-retry"
-      @click="emit('retry', jobId)"
-    >
-      Retry
-    </button>
   </div>
 </template>
 
@@ -49,6 +41,10 @@ const emit = defineEmits(['retry'])
 
 .queue-item.failed {
   background: var(--error-bg);
+}
+
+.queue-item.cancelled {
+  opacity: 0.5;
 }
 
 .queue-item.downloading {
@@ -88,6 +84,12 @@ const emit = defineEmits(['retry'])
   color: var(--error);
   font-size: 14px;
   font-weight: 700;
+}
+
+.dash {
+  color: var(--text-muted);
+  font-size: 16px;
+  font-weight: 300;
 }
 
 .dot {
@@ -144,21 +146,5 @@ const emit = defineEmits(['retry'])
   font-size: 12px;
   color: var(--error);
   white-space: nowrap;
-}
-
-.btn-retry {
-  flex-shrink: 0;
-  background: none;
-  border: 1px solid var(--error);
-  color: var(--error);
-  border-radius: var(--radius-sm);
-  padding: 3px 10px;
-  font-size: 12px;
-  font-weight: 500;
-  transition: background 0.15s;
-}
-
-.btn-retry:hover {
-  background: var(--error-bg);
 }
 </style>
