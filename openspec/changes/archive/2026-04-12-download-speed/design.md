@@ -31,11 +31,11 @@ A new method that pushes a dict into every subscriber's queue for that job, with
 
 **Why:** Progress ticks are ephemeral; they shouldn't touch the job model.
 
-### 3. Wire `_track_progress` to call `publish_progress`
+### 3. Wire `_track_progress` via an `on_progress` callback
 
-Modify the existing `_track_progress` closure (inside `_run_download_job`) to forward `speed` on `status == "downloading"` events. On `"finished"`, it continues to do what it does today.
+Add an `on_progress` parameter to `_download_worker`. Inside `_track_progress`, forward `status == "downloading"` ticks to `on_progress`. In `run_item` (inside `_run_download_job`), create a thin `_on_progress` closure that calls `_job_store.publish_progress`. This keeps `_download_worker` decoupled from `_job_store`.
 
-**Why:** Single point of change — no new callbacks or plumbing needed.
+**Why:** `_download_worker` is a pure worker function — injecting the callback keeps it testable and free of global state dependencies.
 
 ### 4. Frontend: store speed as reactive ref, display in queue header
 
