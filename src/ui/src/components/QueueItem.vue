@@ -100,7 +100,6 @@ const emit = defineEmits(['retry'])
 
 .item-info {
   flex: 1;
-  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -111,8 +110,6 @@ const emit = defineEmits(['retry'])
   font-size: 14px;
   color: var(--text);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .original-title {
@@ -147,8 +144,6 @@ const emit = defineEmits(['retry'])
   font-size: 12px;
   color: var(--error);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .btn-retry {
