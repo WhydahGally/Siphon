@@ -8,7 +8,7 @@
         <TagDescription>Latest stable release</TagDescription>
     </Branch>
     <Network>bridge</Network>
-    <WebUI>http://[IP]:[PORT:8000]</WebUI>
+    <WebUI>http://[IP]:[PORT:8778]</WebUI>
     <Icon>https://raw.githubusercontent.com/WhydahGally/Siphon/main/src/ui/public/favicon.png</Icon>
     <ExtraParams/>
     <PostArgs/>
@@ -20,7 +20,7 @@
     <Category>Downloaders:</Category>
     <Project>https://github.com/WhydahGally/Siphon</Project>
     <Description>YouTube playlist watcher with auto-download, scheduling, and smart renaming. Built for music.</Description>
-    <Config Name="Web UI Port" Target="8000" Default="8000" Mode="tcp" Description="Port for the Siphon web interface" Type="Port" Display="always" Required="true">8000</Config>
+    <Config Name="Web UI Port" Target="8000" Default="8778" Mode="tcp" Description="Port for the Siphon web interface" Type="Port" Display="always" Required="true">8778</Config>
     <Config Name="Downloads" Target="/app/downloads" Default="/mnt/user/downloads/siphon/" Mode="rw" Description="Path to store downloaded media" Type="Path" Display="always" Required="true">/mnt/user/downloads/siphon/</Config>
     <Config Name="App Data" Target="/app/.data" Default="/mnt/user/appdata/siphon/" Mode="rw" Description="Path to store application data (database, logs)" Type="Path" Display="always" Required="true">/mnt/user/appdata/siphon/</Config>
     <Config Name="PUID" Target="PUID" Default="99" Mode="" Description="User ID for file permissions" Type="Variable" Display="advanced" Required="false">99</Config>
