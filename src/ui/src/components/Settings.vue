@@ -305,34 +305,37 @@ async function handleFactoryReset() {
         </div>
       </div>
 
-      <div class="setting-row setting-row--block">
-        <div class="setting-label-col">
-          <span class="setting-label">Title noise patterns</span>
-          <span class="setting-desc">
-            Regex patterns that strip YouTube noise suffixes (e.g. <code>(Official Video)</code>, <code>[Lyric Video]</code>)
-            from filenames.<br />Each pattern matches content inside <code>( )</code> or <code>[ ]</code> at the end of a title.
+      <div class="noise-disclosure" :class="{ 'noise-disclosure--open': noisePatternsOpen }">
+        <div class="noise-disclosure-header" @click="noisePatternsOpen ? cancelNoisePatterns() : openNoisePatterns()">
+          <div class="setting-label-col">
+            <span class="setting-label">Title noise patterns</span>
+            <span class="setting-desc">
+              Regex patterns that strip YouTube noise suffixes (e.g. <code>(Official Video)</code>, <code>[Lyric Video]</code>)
+              from filenames.
+            </span>
+          </div>
+          <button class="noise-expand-strip" :class="{ 'is-expanded': noisePatternsOpen }">
+            <span class="chevron">›</span>
+          </button>
+        </div>
+        <div v-if="noisePatternsOpen" class="noise-disclosure-body">
+          <span class="setting-desc" style="margin-bottom: 6px; display: block;">
+            Each pattern matches content inside <code>( )</code> or <code>[ ]</code> at the end of a title.
             When unset, built-in defaults are used.
           </span>
-        </div>
-        <div class="noise-toggle-row">
-          <button v-if="!noisePatternsOpen" class="btn-cancel-sm" @click="openNoisePatterns">
-            Edit noise patterns
-          </button>
-          <template v-else>
-            <textarea
-              v-model="noisePatternsText"
-              class="noise-textarea"
-              placeholder="One pattern per line, e.g.\nofficial video\nlyric video"
-              rows="6"
-            />
-            <span v-if="!noisePatternsStored" class="setting-desc noise-default-note">
-              No patterns saved — built-in defaults are currently active.
-            </span>
-            <div class="noise-actions">
-              <button class="btn-primary-sm" @click="saveNoisePatterns">Save</button>
-              <button class="btn-cancel-sm" @click="cancelNoisePatterns">Cancel</button>
-            </div>
-          </template>
+          <textarea
+            v-model="noisePatternsText"
+            class="noise-textarea"
+            placeholder="One pattern per line, e.g.&#10;official video&#10;lyric video"
+            rows="6"
+          />
+          <span v-if="!noisePatternsStored" class="setting-desc noise-default-note">
+            No patterns saved — built-in defaults are currently active.
+          </span>
+          <div class="noise-actions">
+            <button class="btn-primary-sm" @click="saveNoisePatterns">Save</button>
+            <button class="btn-cancel-sm" @click="cancelNoisePatterns">Cancel</button>
+          </div>
         </div>
       </div>
     </section>
@@ -377,7 +380,7 @@ async function handleFactoryReset() {
         >github.com/WhydahGally/Siphon ↗</a>
       </div>
 
-      <div class="about-grid" style="margin-top: 12px; border-top: 1px solid var(--border); padding-top: 12px;">
+      <div class="about-grid" style="border-top: 1px solid var(--border); padding-top: 12px;">
         <span class="about-key" :title="logsDir + '/siphon.log'">Log level</span>
         <select v-model="logLevel" class="select select--sm" :title="logsDir + '/siphon.log'" @change="onLogLevelChange">
           <option v-for="lvl in ['DEBUG', 'INFO', 'WARNING', 'ERROR']" :key="lvl" :value="lvl">{{ lvl }}</option>
@@ -675,12 +678,54 @@ code {
 .text-input::placeholder { color: var(--text-muted); }
 
 /* ── Noise patterns editor ───────────────────────────────────────────────── */
-.noise-toggle-row {
+.noise-disclosure {
+  border-bottom: 1px solid var(--border);
+}
+.noise-disclosure:last-child { border-bottom: none; }
+
+.noise-disclosure-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 16px 20px;
+  cursor: pointer;
+  user-select: none;
+}
+.noise-disclosure-header:hover { background: var(--surface-2); }
+
+.noise-expand-strip {
+  flex-shrink: 0;
+  width: 44px;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-left: 1px solid var(--border);
+  cursor: pointer;
+  padding: 0;
+  margin: -16px -20px -16px 0;
+}
+.noise-expand-strip .chevron {
+  font-size: 22px;
+  color: var(--text-muted);
+  transition: transform 0.2s ease, color 0.2s ease, text-shadow 0.2s ease;
+  display: inline-block;
+}
+.noise-expand-strip.is-expanded .chevron {
+  transform: rotate(90deg);
+}
+.noise-expand-strip:hover .chevron {
+  color: var(--accent);
+  text-shadow: 0 0 10px var(--accent), 0 0 20px rgba(124, 106, 247, 0.4);
+}
+
+.noise-disclosure-body {
+  padding: 0 20px 16px 20px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  align-self: center;
-  min-width: 50%;
 }
 
 .noise-textarea {
