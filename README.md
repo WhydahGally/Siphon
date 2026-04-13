@@ -22,7 +22,11 @@ Siphon is primarily developed using spec-driven development through [OpenSpec](h
 
 ## Screenshots
 
-<!-- TODO: Add screenshots of the web UI -->
+<img width="1728" height="1084" alt="Screenshot 2026-04-12 at 23 54 34" src="https://github.com/user-attachments/assets/692e6909-f569-4369-bd0e-9c239c293ea8" />
+<img width="1728" height="1083" alt="Screenshot 2026-04-12 at 23 49 55" src="https://github.com/user-attachments/assets/2736e4c4-d189-4b24-bc2e-b6590d63f853" />
+<img width="1728" height="1084" alt="Screenshot 2026-04-12 at 23 50 36" src="https://github.com/user-attachments/assets/d9c3b51b-0b63-4101-ba2c-2cfd357e274b" />
+<img width="1728" height="1084" alt="Screenshot 2026-04-12 at 23 51 04" src="https://github.com/user-attachments/assets/81439fcc-e36f-4d4d-b521-a5fc9efe6a75" />
+
 
 ## Installation
 
