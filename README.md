@@ -1,6 +1,6 @@
 # Siphon
 
-A self-hosted YT playlist watcher that automatically downloads new additions on a schedule. Built to solve specific shortcomings that I came across while using [YT-DLP](https://github.com/yt-dlp/yt-dlp) or wrappers like [MeTube](https://github.com/alexta69/metube).
+A self-hosted YT playlist watcher that automatically downloads new additions on a schedule. Built to solve specific shortcomings that we came across while using [YT-DLP](https://github.com/yt-dlp/yt-dlp) or wrappers like [MeTube](https://github.com/alexta69/metube).
 
 Siphon runs as a daemon with a web UI — register your playlists, set a schedule, and forget about it. New tracks show up in your library automatically.
 
