@@ -1,21 +1,21 @@
 # Siphon
 
-A self-hosted YT playlist watcher that automatically downloads new additions on a schedule. Built to solve specific shortcomings that we came across while using [YT-DLP](https://github.com/yt-dlp/yt-dlp) or wrappers like [MeTube](https://github.com/alexta69/metube).
+A self-hosted YT playlist downloader & watcher that automatically downloads new additions on a schedule. Built to solve specific shortcomings that we came across while using other apps like [MeTube](https://github.com/alexta69/metube).
 
-Siphon runs as a daemon with a web UI — register your playlists, set a schedule, and forget about it. New tracks show up in your library automatically.
+Siphon uses [YT-DLP](https://github.com/yt-dlp/yt-dlp) and runs as a daemon with a web UI — register your playlists, set a schedule, and forget about it. New tracks show up in your library automatically.
 
 Siphon is primarily developed using spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec/tree/main). Every feature starts as a specification before a single line of code is written. This is not vibe coding — there are actual specs, actual designs, and actual task lists. Revolutionary, we know.
 
 ## Features
 
 - **Download** — Download entire playlists or single videos.
-- **Parallel downloads** — Configurable concurrent downloads (1–10 workers).
 - **Format selection** — Download as MP3, FLAC, WAV, M4A, OPUS, or video formats (MP4, MKV, WEBM) with quality options.
+- **Parallel downloads** — Configurable concurrent downloads (1–10 workers).
 - **Playlist watching** — Monitors YouTube playlists and auto-downloads newly added videos.
 - **Scheduled syncing** — Configurable per-playlist sync intervals (hourly, daily, whatever you want).
 - **Smart renaming** — Cleans up filenames using metadata and MusicBrainz lookups.
-- **Audio metadata embedding** — Automatically embeds artist, title, album, and cover art into audio files.
-- **Web UI** — Manage playlists, view download history, configure settings, and monitor progress from your browser.
+- **Audio metadata embedding** — Automatically embeds artist, title, album and cover art into audio files.
+- **Web UI** — Manage playlists, view download history, configure settings and monitor progress from your browser.
 - **CLI** — Full command-line interface for automation, scripting and debugging.
 - **Container-first** — Designed to run in Docker, built for Unraid.
 
@@ -30,10 +30,10 @@ Siphon is primarily developed using spec-driven development through [OpenSpec](h
 
 ## Installation
 
-### Unraid (recommended)
+### Unraid
 
-Siphon is built for Unraid. Install it from Community Apps:
-
+Siphon is built container-first, designed for Unraid.<br>
+Install it from Community Apps:
 1. Open the **Community Apps** plugin in your Unraid dashboard.
 2. Search for **Siphon**.
 3. Click **Install** and configure:
@@ -82,7 +82,7 @@ Contributions are welcome! AI-generated code is also welcome — but only if it 
 When raising a PR:
 1. Include the OpenSpec artifacts (proposal, design, specs, tasks) in the `openspec/changes/` directory.
 2. Ensure specs exist for any new capabilities under `openspec/specs/`.
-3. Test your changes locally following the steps below.
+3. Test your changes locally following the steps provided in the [**Local Development**](#local-development) section.
 
 ### Local Development
 
@@ -105,7 +105,7 @@ siphon watch
 siphon list
 ```
 
-For the web UI:
+**For the web UI:**
 
 ```bash
 cd src/ui
@@ -113,26 +113,27 @@ npm install
 npm run dev
 ```
 
-#### CLI Commands
+### CLI Commands
 
-| Command | Description |
-|---|---|
-| `siphon watch` | Start the Siphon daemon (required for all other commands). |
-| `siphon add <url>` | Register a YouTube playlist. Supports `--download`, `--no-watch`, `--interval`, `--format`, `--quality`, `--output-dir`, `--auto-rename`. |
-| `siphon list` | Show all registered playlists. |
-| `siphon sync [<name>]` | Download new items for a specific playlist or all playlists. |
-| `siphon sync-failed [<name>]` | Retry failed downloads for a specific playlist or all. |
-| `siphon cancel` | Cancel all active download jobs. |
-| `siphon delete <name>` | Remove a playlist from the registry. |
-| `siphon delete-all-playlists` | Remove all playlists and sync history from the registry. |
-| `siphon factory-reset` | Wipe all playlists, history, and settings. Downloaded files are not affected. |
-| `siphon config <key> [<value>]` | Get or set a global config value (`log-level`, `interval`, `max-concurrent-downloads`, `mb-user-agent`, `auto-rename`, `theme`, `browser-logs`, `title-noise-patterns`). |
-| `siphon config-playlist <name> [<key> [<value>]]` | Get or set per-playlist config (`interval`, `auto-rename`, `watched`). |
-| `siphon playlist-items <name>` | List all downloaded items for a playlist. |
+|                      Command                      |                                                        Description                                                        |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `siphon --help`                                   | Show all available commands.                                                                                              |
+| `siphon watch`                                    | Start the Siphon daemon (required for all other commands).                                                                |
+| `siphon add <url>`                                | Register a playlist (`--download`, `--no-watch`, `--interval`, `--format`, `--quality`, `--output-dir`, `--auto-rename`). |
+| `siphon list`                                     | Show all registered playlists.                                                                                            |
+| `siphon sync [<name>]`                            | Download new items for a specific playlist or all playlists.                                                              |
+| `siphon sync-failed [<name>]`                     | Retry failed downloads for a specific playlist or all.                                                                    |
+| `siphon cancel`                                   | Cancel all active download jobs.                                                                                          |
+| `siphon delete <name>`                            | Remove a playlist from the registry.                                                                                      |
+| `siphon delete-all-playlists`                     | Remove all playlists and sync history from the registry.                                                                  |
+| `siphon factory-reset`                            | Wipe all playlists, history and settings. Downloads are not affected.                                                     |
+| `siphon config <key> [<value>]`                   | Get or set a global config value (`log-level`, `interval`, `max-concurrent-downloads`, `mb-user-agent`, `auto-rename`, `theme`, `browser-logs`, `title-noise-patterns`). |
+| `siphon config-playlist <name> [<key> [<value>]]` | Get or set per-playlist config (`interval`, `auto-rename`, `watched`).                                                    |
+| `siphon playlist-items <name>`                    | List all downloaded items for a playlist.                                                                                 |
 
 ## Submitting Issues
 
-Siphon is a wrapper around [yt-dlp](https://github.com/yt-dlp/yt-dlp). Many issues — especially download failures, authentication errors, format extraction problems, or site-specific breakage — are caused by yt-dlp, not Siphon.
+Siphon is a wrapper around [yt-dlp](https://github.com/yt-dlp/yt-dlp). Many issues — especially download failures, authentication errors, format extraction problems or site-specific breakage — are caused by yt-dlp, not Siphon.
 
 **Before opening an issue, check if it's a yt-dlp problem:**
 - Try downloading the same URL directly with `yt-dlp <url>` from the command line.
@@ -151,7 +152,7 @@ Siphon supports four log levels, configurable via the CLI or the Settings page i
 | Level | Description |
 |---|---|
 | `DEBUG` | Verbose output including yt-dlp internals. Use when diagnosing issues. |
-| `INFO` | Normal operation. Shows sync activity, downloads, and renames. (default) |
+| `INFO` | Normal operation. Shows sync activity, downloads and renames. (default) |
 | `WARNING` | Only warnings and errors. |
 | `ERROR` | Only errors. |
 
