@@ -25,6 +25,17 @@ The entrypoint SHALL use `gosu` to execute the application command as the `sipho
 - **WHEN** the container is running
 - **THEN** the `siphon watch` process runs as the `siphon` user, not root
 
+### Requirement: Entrypoint applies UMASK
+The entrypoint SHALL set the file creation mask using the `UMASK` environment variable, defaulting to `022` if not set.
+
+#### Scenario: Custom UMASK provided
+- **WHEN** the container starts with `UMASK=002`
+- **THEN** new files are created with permission mask `002`
+
+#### Scenario: Default UMASK
+- **WHEN** the container starts without `UMASK` set
+- **THEN** the file creation mask defaults to `022`
+
 ### Requirement: Dockerfile includes gosu
 The Dockerfile SHALL install `gosu` and copy `entrypoint.sh` into the image.
 

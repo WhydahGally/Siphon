@@ -21,6 +21,13 @@ The template SHALL expose `PUID` and `PGID` environment variables with Unraid de
 - **WHEN** a user installs Siphon from Unraid CA
 - **THEN** the install screen shows PUID (default 99) and PGID (default 100) fields
 
+### Requirement: Template exposes UMASK
+The template SHALL expose a `UMASK` environment variable with a default of `022`.
+
+#### Scenario: UMASK configuration
+- **WHEN** a user installs Siphon from Unraid CA
+- **THEN** the install screen shows UMASK (default 022) under advanced settings
+
 ### Requirement: Template metadata
 The template SHALL include a name, description, icon URL (PNG from GitHub raw), repository URL, category (`Downloaders:`), and network mode (`bridge`).
 
@@ -29,8 +36,8 @@ The template SHALL include a name, description, icon URL (PNG from GitHub raw), 
 - **THEN** the app shows the Siphon icon, description, and Downloaders category
 
 ### Requirement: Template location
-The template file SHALL be located at `dist/unraid/siphon.xml` in the repository.
+The template file SHALL be located at `unraid/siphon.xml` in the repository.
 
 #### Scenario: Template exists at expected path
 - **WHEN** the repo is cloned
-- **THEN** `dist/unraid/siphon.xml` is a valid Unraid container template XML file
+- **THEN** `unraid/siphon.xml` is a valid Unraid container template XML file

@@ -40,10 +40,10 @@ A manually-dispatched workflow that:
 2. Compares with the pinned version in `requirements.txt`.
 3. If newer, updates `requirements.txt` and opens a PR.
 
-Uses `peter-evans/create-pull-request` for PR creation. No auto-merge — the maintainer reviews and merges, which triggers the build workflow.
+Uses the `gh` CLI to push a branch and open a PR. No auto-merge — the maintainer reviews and merges, which triggers the build workflow.
 
 ### 5. Unraid template in same repo
-The template lives at `dist/unraid/siphon.xml` in the main repo. No separate template repository needed. The Community Apps submission points to this path.
+The template lives at `unraid/siphon.xml` in the main repo. No separate template repository needed. The Community Apps submission points to this path.
 
 ### 6. PNG icon
 Generate a PNG from `src/ui/public/favicon.svg` and place it alongside as `favicon.png`. The Unraid template references the raw GitHub URL for the PNG. Older Unraid versions handle PNG more reliably than SVG.
