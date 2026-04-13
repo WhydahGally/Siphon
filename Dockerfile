@@ -9,6 +9,10 @@ RUN npm run build
 # Stage 2: Python daemon
 FROM python:3.12-slim
 
+# Install gosu for PUID/PGID support
+RUN apt-get update && apt-get install -y --no-install-recommends gosu \
+    && rm -rf /var/lib/apt/lists/*
+
 # Copy static ffmpeg/ffprobe binaries (avoids apt network issues)
 COPY --from=mwader/static-ffmpeg:latest /ffmpeg /usr/local/bin/ffmpeg
 COPY --from=mwader/static-ffmpeg:latest /ffprobe /usr/local/bin/ffprobe
@@ -31,4 +35,6 @@ VOLUME ["/app/.data", "/app/downloads"]
 
 EXPOSE 8000
 
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["entrypoint.sh"]
 CMD ["siphon", "watch"]
