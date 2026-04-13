@@ -35,6 +35,7 @@ import os
 import sys
 import argparse
 import logging
+import logging.handlers
 import threading
 import time
 import uuid
@@ -552,6 +553,7 @@ def _download_worker(
     video_id = entry["id"]
     title = entry["title"]
     video_url = entry["url"]
+    logger.debug("Syncing item: %s (%s)", video_id, title)
 
     # Single-video jobs (playlist_id=None) go directly into output_dir.
     # Playlist items go into a per-playlist subfolder: <output_dir>/<playlist_name>/
@@ -939,6 +941,39 @@ _sync_info: dict = {}                     # playlist_id -> new_items count while
 _sync_event_queues: List[asyncio.Queue] = []  # one per SSE subscriber
 _sync_loop: Optional[asyncio.AbstractEventLoop] = None
 
+# ---------------------------------------------------------------------------
+# Log-stream state (browser console SSE)
+# ---------------------------------------------------------------------------
+
+_log_queues: List[asyncio.Queue] = []     # one per /logs/stream SSE subscriber
+_log_loop: Optional[asyncio.AbstractEventLoop] = None
+_browser_logs_enabled: bool = False       # cached from DB setting
+
+
+class _SSELogHandler(logging.Handler):
+    """Push log records to SSE subscriber queues for browser console streaming."""
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if not _browser_logs_enabled or not _log_queues:
+            return
+        loop = _log_loop
+        if loop is None:
+            return
+        try:
+            payload = json.dumps({
+                "level": record.levelname,
+                "name": record.name,
+                "msg": self.format(record),
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(record.created)),
+            })
+        except Exception:
+            return
+        for q in list(_log_queues):
+            try:
+                loop.call_soon_threadsafe(q.put_nowait, payload)
+            except Exception:
+                pass
+
 
 def _broadcast_sync_event(event: str, playlist_id: str, **extra) -> None:
     """
@@ -958,7 +993,7 @@ def _broadcast_sync_event(event: str, playlist_id: str, **extra) -> None:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    global _scheduler, _job_store, _sync_loop
+    global _scheduler, _job_store, _sync_loop, _log_loop
     data_dir = _resolve_data_dir()
     registry.init_db(data_dir)
     if not registry.get_setting("title_noise_patterns"):
@@ -968,12 +1003,20 @@ async def _lifespan(app: FastAPI):
     _job_store = JobStore()
     _job_store.set_loop(asyncio.get_event_loop())
     _sync_loop = asyncio.get_event_loop()
+    _log_loop = asyncio.get_event_loop()
     yield
     if _scheduler is not None:
         _scheduler.stop()
 
 
 app = FastAPI(title="Siphon", lifespan=_lifespan)
+
+
+@app.middleware("http")
+async def _log_requests(request, call_next):
+    logger.debug("%s %s", request.method, request.url.path)
+    return await call_next(request)
+
 
 _DAEMON_URL = "http://localhost:8000"
 
@@ -1080,6 +1123,7 @@ def api_list_playlists():
 @app.get("/playlists/sync-events")
 async def api_sync_events():
     """SSE stream that broadcasts sync_started / sync_done events."""
+    logger.debug("SSE subscriber connected: /playlists/sync-events")
     q: asyncio.Queue = asyncio.Queue()
     _sync_event_queues.append(q)
 
@@ -1095,6 +1139,37 @@ async def api_sync_events():
                 _sync_event_queues.remove(q)
             except ValueError:
                 pass
+            logger.debug("SSE subscriber disconnected: /playlists/sync-events")
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@app.get("/logs/stream")
+async def api_log_stream():
+    """SSE stream that broadcasts daemon log records to the browser console."""
+    if not _browser_logs_enabled:
+        raise HTTPException(status_code=503, detail="Browser logs are disabled.")
+    logger.debug("SSE subscriber connected: /logs/stream")
+    q: asyncio.Queue = asyncio.Queue(maxsize=500)
+    _log_queues.append(q)
+
+    async def event_generator():
+        try:
+            while True:
+                payload = await q.get()
+                yield f"data: {payload}\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            try:
+                _log_queues.remove(q)
+            except ValueError:
+                pass
+            logger.debug("SSE subscriber disconnected: /logs/stream")
 
     return StreamingResponse(
         event_generator(),
@@ -1243,6 +1318,13 @@ def api_put_setting(key: str, body: SettingWrite):
                 raise HTTPException(status_code=400, detail=f"Invalid regex pattern '{p}': {exc}")
     db_key = _KNOWN_KEYS[key][0]
     registry.set_setting(db_key, body.value)
+    # Live propagation for log-level and browser-logs settings.
+    if db_key == "log_level":
+        logging.getLogger("siphon").setLevel(getattr(logging, body.value, logging.INFO))
+    elif db_key == "browser_logs":
+        global _browser_logs_enabled
+        _browser_logs_enabled = body.value == "on"
+    logger.info("Setting changed: %s → %s", key, body.value)
     return {"key": key, "value": body.value}
 
 
@@ -1265,6 +1347,7 @@ def api_info():
     return {
         "download_dir": _resolve_output_dir(_DEFAULT_OUTPUT_DIR),
         "db_dir": _resolve_data_dir(),
+        "logs_dir": _resolve_data_dir(),
     }
 
 
@@ -1398,6 +1481,7 @@ async def api_stream_job(job_id: str):
     job = _job_store.get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found.")
+    logger.debug("SSE subscriber connected: /jobs/%s/stream", job_id)
 
     async def event_generator():
         # Subscribe first so we don't miss events that fire after we read state.
@@ -1434,6 +1518,7 @@ async def api_stream_job(job_id: str):
                     yield f"data: {json.dumps(event)}\n\n"
         finally:
             _job_store.unsubscribe(job_id, q)
+            logger.debug("SSE subscriber disconnected: /jobs/%s/stream", job_id)
 
     return StreamingResponse(
         event_generator(),
@@ -2037,6 +2122,11 @@ _KNOWN_KEYS = {
         "theme",
         "UI colour theme. Accepted values: dark, light. Default: dark.",
     ),
+    "browser-logs": (
+        "browser_logs",
+        "Stream daemon logs to the browser developer console via SSE. "
+        "Accepted values: on, off. Default: off.",
+    ),
     "title-noise-patterns": (
         "title_noise_patterns",
         "JSON array of regex pattern strings for stripping YouTube title noise "
@@ -2052,6 +2142,7 @@ _ALLOWED_VALUES: dict = {
     "log-level": {"DEBUG", "INFO", "WARNING", "ERROR"},
     "auto-rename": {"true", "false"},
     "theme": {"dark", "light"},
+    "browser-logs": {"on", "off"},
 }
 
 _PLAYLIST_KNOWN_KEYS = {"interval", "auto-rename", "watched"}
@@ -2200,9 +2291,10 @@ def cmd_playlist_items(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
+    log_format = "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
     logging.basicConfig(
         level=logging.WARNING,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        format=log_format,
         stream=sys.stderr,
     )
 
@@ -2211,7 +2303,31 @@ def main() -> None:
         stored_level = registry.get_setting("log_level") or "INFO"
     except RuntimeError:
         stored_level = "INFO"
-    logging.getLogger("siphon").setLevel(getattr(logging, stored_level, logging.INFO))
+    siphon_logger = logging.getLogger("siphon")
+    siphon_logger.setLevel(getattr(logging, stored_level, logging.INFO))
+
+    # Rolling log file — 5 MB max, 1 backup, alongside the DB.
+    data_dir = _resolve_data_dir()
+    os.makedirs(data_dir, exist_ok=True)
+    file_handler = logging.handlers.RotatingFileHandler(
+        os.path.join(data_dir, "siphon.log"),
+        maxBytes=5 * 1024 * 1024,
+        backupCount=1,
+    )
+    file_handler.setFormatter(logging.Formatter(log_format))
+    siphon_logger.addHandler(file_handler)
+
+    # SSE log handler for browser console streaming.
+    sse_handler = _SSELogHandler()
+    sse_handler.setFormatter(logging.Formatter("%(message)s"))
+    siphon_logger.addHandler(sse_handler)
+
+    # Cache browser-logs setting.
+    global _browser_logs_enabled
+    try:
+        _browser_logs_enabled = registry.get_setting("browser_logs") == "on"
+    except RuntimeError:
+        _browser_logs_enabled = False
 
     parser = argparse.ArgumentParser(
         prog="siphon",

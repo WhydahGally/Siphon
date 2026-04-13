@@ -1,12 +1,41 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import NavBar from './components/NavBar.vue'
 import Dashboard from './components/Dashboard.vue'
 import Library from './components/Library.vue'
 import Settings from './components/Settings.vue'
 import ToastContainer from './components/ToastContainer.vue'
+import { useSettings } from './composables/useSettings.js'
 
 const currentPage = ref('dashboard')
+const { browserLogs } = useSettings()
+
+let logSource = null
+
+function connectLogStream() {
+  if (logSource) { logSource.close(); logSource = null }
+  logSource = new EventSource('/logs/stream')
+  logSource.onmessage = (e) => {
+    try {
+      const { level, name, msg } = JSON.parse(e.data)
+      const tag = `[${name}] ${msg}`
+      if (level === 'DEBUG') console.debug(tag)
+      else if (level === 'INFO') console.info(tag)
+      else if (level === 'WARNING') console.warn(tag)
+      else console.error(tag)
+    } catch { /* malformed event */ }
+  }
+  logSource.onerror = () => { logSource.close(); logSource = null }
+}
+
+function disconnectLogStream() {
+  if (logSource) { logSource.close(); logSource = null }
+}
+
+watch(browserLogs, (val) => {
+  if (val) connectLogStream()
+  else disconnectLogStream()
+})
 
 onMounted(async () => {
   try {
@@ -14,11 +43,16 @@ onMounted(async () => {
     if (res.ok) {
       const { download_dir, db_dir } = await res.json()
       console.info('[siphon] Download directory:', download_dir)
-      console.info('[siphon] DB directory:      ', db_dir)
+      console.info('[siphon] DB & logs directory:', db_dir)
     }
   } catch {
     // daemon not reachable yet
   }
+  if (browserLogs.value) connectLogStream()
+})
+
+onUnmounted(() => {
+  disconnectLogStream()
 })
 </script>
 

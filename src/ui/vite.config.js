@@ -13,6 +13,7 @@ export default defineConfig({
       '/version': 'http://localhost:8000',
       '/factory-reset': 'http://localhost:8000',
       '/info': 'http://localhost:8000',
+      '/logs': 'http://localhost:8000',
     },
   },
 })

@@ -187,10 +187,13 @@ def strip_noise(title: str, patterns: Optional[list] = None) -> str:
         r"\s*[\(\[]\s*(?:" + inner + r")\s*[\)\]]\s*$",
         re.IGNORECASE,
     )
+    original = title
     prev = None
     while prev != title:
         prev = title
         title = noise_re.sub("", title).strip()
+    if title != original:
+        logger.debug("Stripped noise: %r → %r", original, title)
     return title
 
 
@@ -237,8 +240,10 @@ def _mb_search(title: str, user_agent: str) -> Optional[dict]:
         elapsed = time.monotonic() - _last_mb_request_time
         wait = 1.0 - elapsed
         if wait > 0:
+            logger.debug("MB rate-limit: waiting %.0fms", wait * 1000)
             time.sleep(wait)
 
+        req_start = time.monotonic()
         try:
             resp = requests.get(
                 _MB_API_URL,
@@ -252,7 +257,9 @@ def _mb_search(title: str, user_agent: str) -> Optional[dict]:
             return None
 
         _last_mb_request_time = time.monotonic()
+        latency_ms = (_last_mb_request_time - req_start) * 1000
 
+    logger.debug("MB lookup: %r → HTTP %s (%.0fms)", title, resp.status_code, latency_ms)
     if resp.status_code != 200:
         logger.warning("renamer: MusicBrainz returned HTTP %s", resp.status_code)
         return None
