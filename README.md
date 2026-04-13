@@ -1,14 +1,16 @@
 # Siphon
 
-A self-hosted YT playlist watcher that automatically downloads new additions on a schedule. Built to solve specific shortcomings that I came across while using [YT-DLP](https://github.com/yt-dlp/yt-dlp) or wrappers like [meTube](https://github.com/alexta69/metube).
+A self-hosted YT playlist watcher that automatically downloads new additions on a schedule. Built to solve specific shortcomings that I came across while using [YT-DLP](https://github.com/yt-dlp/yt-dlp) or wrappers like [MeTube](https://github.com/alexta69/metube).
 
 Siphon runs as a daemon with a web UI — register your playlists, set a schedule, and forget about it. New tracks show up in your library automatically.
+
+Siphon is primarily developed using spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec/tree/main). Every feature starts as a specification before a single line of code is written. This is not vibe coding — there are actual specs, actual designs, and actual task lists. Revolutionary, we know.
 
 ## Features
 
 - **Download** — Download entire playlists or single videos.
 - **Parallel downloads** — Configurable concurrent downloads (1–10 workers).
-- **Format selection** — download as MP3, FLAC, WAV, M4A, OPUS, or video formats (MP4, MKV, WEBM) with quality options.
+- **Format selection** — Download as MP3, FLAC, WAV, M4A, OPUS, or video formats (MP4, MKV, WEBM) with quality options.
 - **Playlist watching** — Monitors YouTube playlists and auto-downloads newly added videos.
 - **Scheduled syncing** — Configurable per-playlist sync intervals (hourly, daily, whatever you want).
 - **Smart renaming** — Cleans up filenames using metadata and MusicBrainz lookups.
@@ -17,9 +19,6 @@ Siphon runs as a daemon with a web UI — register your playlists, set a schedul
 - **CLI** — Full command-line interface for automation, scripting and debugging.
 - **Container-first** — Designed to run in Docker, built for Unraid.
 
-### Built with OpenSpec
-
-Siphon is primarily developed using spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec/tree/main). Every feature starts as a specification before a single line of code is written. This is not vibe coding — there are actual specs, actual designs, and actual task lists. Revolutionary, we know.
 
 ## Screenshots
 
