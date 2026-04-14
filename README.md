@@ -40,14 +40,14 @@ Install it from Community Apps:
    - **Downloads path** — where your media gets saved (e.g. `/mnt/user/downloads/siphon/`)
    - **App Data path** — where the database and logs live (e.g. `/mnt/user/appdata/siphon/`)
    - **PUID/PGID** — user/group IDs for file ownership (defaults: `99`/`100`)
-4. Start the container and open the web UI on port **8000**.
+4. Start the container and open the web UI on port **8778**.
 
 ### Docker
 
 ```bash
 docker run -d \
   --name siphon \
-  -p 8000:8000 \
+  -p 8778:8000 \
   -v /path/to/downloads:/app/downloads \
   -v /path/to/appdata:/app/.data \
   -e PUID=1000 \
@@ -64,7 +64,7 @@ services:
     container_name: siphon
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8778:8000"
     volumes:
       - /path/to/downloads:/app/downloads
       - /path/to/appdata:/app/.data
@@ -73,7 +73,7 @@ services:
       - PGID=1000
 ```
 
-The web UI is available at `http://<your-ip>:8000`.
+The web UI is available at `http://<your-ip>:8778`.
 
 ## Contributing
 
