@@ -1,0 +1,77 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in Siphon.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Before opening an issue, please check if it's a [yt-dlp problem](https://github.com/WhydahGally/Siphon#submitting-issues).
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect to happen?
+    validations:
+      required: true
+
+  - type: input
+    id: url
+    attributes:
+      label: Playlist or video URL
+      description: The URL that triggered the issue, if applicable.
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: How can this be reproduced?
+      placeholder: |
+        1. Add playlist with `siphon add <url>`
+        2. Run `siphon sync`
+        3. See error...
+
+  - type: input
+    id: siphon-version
+    attributes:
+      label: Siphon version
+      description: Shown in the web UI settings page.
+    validations:
+      required: true
+
+  - type: input
+    id: ytdlp-version
+    attributes:
+      label: yt-dlp version
+      description: Shown in the web UI settings page.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - Docker (Unraid)
+        - Docker (other)
+        - Local (no Docker)
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log output
+      description: |
+        Paste the relevant section of `siphon.log`. Set log level to `DEBUG` first for more detail.
+        In Docker, the log file is at `/path/to/appdata/siphon.log`.
+      render: text
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Pre-submission checklist
+      options:
+        - label: I am running the latest version of Siphon.
+        - label: I tested the same URL with `docker exec siphon yt-dlp <url>` and it works.
+        - label: I checked [yt-dlp issues](https://github.com/yt-dlp/yt-dlp/issues) for matching reports.

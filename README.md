@@ -1,20 +1,20 @@
 # Siphon
 
-A self-hosted YT playlist downloader & watcher that automatically downloads new additions on a schedule. Built to solve specific shortcomings that we came across while using other apps like [MeTube](https://github.com/alexta69/metube).
+A self-hosted YT playlist downloader & watcher that automatically downloads new additions on a schedule. Built to address shortcomings found in tools like [MeTube](https://github.com/alexta69/metube).
 
 Siphon uses [YT-DLP](https://github.com/yt-dlp/yt-dlp) and runs as a daemon with a web UI — register your playlists, set a schedule, and forget about it. New tracks show up in your library automatically.
 
-Siphon is primarily developed using spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec/tree/main). Every feature starts as a specification before a single line of code is written. This is not vibe coding — there are actual specs, actual designs, and actual task lists. Revolutionary, we know.
+Siphon is primarily developed using spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec/tree/main). Every feature starts as a specification before a single line of code is written. This is not vibe coding — there are actual specs, actual designs, and actual task lists. Revolutionary, right?
 
 ## Features
 
 - **Download** — Download entire playlists or single videos.
-- **Format selection** — Download as MP3, FLAC, WAV, M4A, OPUS, or video formats (MP4, MKV, WEBM) with quality options.
+- **Format selection** — Download audio (MP3, OPUS) or video formats (MP4, MKV, WEBM) with quality options.
 - **Parallel downloads** — Configurable concurrent downloads (1–10 workers).
 - **Playlist watching** — Monitors YouTube playlists and auto-downloads newly added videos.
 - **Scheduled syncing** — Configurable per-playlist sync intervals (hourly, daily, whatever you want).
-- **Smart renaming** — Cleans up filenames using metadata and MusicBrainz lookups.
-- **Audio metadata embedding** — Automatically embeds artist, title, album and cover art into audio files.
+- **Smart renaming** — Cleans up filenames using YT metadata and MusicBrainz lookups.
+- **Audio metadata embedding** — Embeds artist, title, album and cover art into audio files.
 - **Web UI** — Manage playlists, view download history, configure settings and monitor progress from your browser.
 - **CLI** — Full command-line interface for automation, scripting and debugging.
 - **Container-first** — Designed to run in Docker, built for Unraid.
@@ -133,19 +133,31 @@ npm run dev
 
 ## Submitting Issues
 
-Siphon is a wrapper around [yt-dlp](https://github.com/yt-dlp/yt-dlp). Many issues — especially download failures, authentication errors, format extraction problems or site-specific breakage — are caused by yt-dlp, not Siphon.
-
-**Before opening an issue, check if it's a yt-dlp problem:**
-- Try downloading the same URL directly with `yt-dlp <url>` from the command line.
-- If `yt-dlp` fails too, the issue is upstream — check [yt-dlp issues](https://github.com/yt-dlp/yt-dlp/issues) or update yt-dlp.
-- If `yt-dlp` works but Siphon doesn't, it's a Siphon issue and we want to hear about it.
+Siphon is a wrapper around [yt-dlp](https://github.com/yt-dlp/yt-dlp). Many issues — especially download failures, authentication errors, format extraction problems or are caused by yt-dlp, not Siphon.
 
 **Common yt-dlp issues:**
 - **"Video unavailable"** — the video is private, deleted, or region-locked.
 - **"Sign in to confirm your age"** — requires cookie authentication, not currently supported by Siphon.
 - **Format extraction errors** — usually fixed by updating yt-dlp. Siphon pins a specific yt-dlp version; check if a newer version resolves it.
 
-### Log Levels
+**Before opening an issue, check if it's a yt-dlp problem:**
+- Ensure that you are using the latest available version of Siphon. Siphon pins yt-dlp to a specific version and updates it with each release.
+- Try downloading the same URL directly with yt-dlp from inside the Siphon container: `docker exec siphon yt-dlp <url>`.
+- If yt-dlp fails, the issue is upstream. Check the yt-dlp version Siphon is using (shown in the web UI settings page) and search for matching issues in [yt-dlp issues](https://github.com/yt-dlp/yt-dlp/issues).
+- If yt-dlp works fine with the same version or there is no Siphon update available, we want to hear about it.
+
+**When opening an issue, please include:**
+1. A description of the problem and what you expected to happen.
+2. The playlist or video URL that triggered the issue.
+3. Your Siphon version and yt-dlp version (shown in the web UI settings page or use the CLI).
+4. The relevant section of your [log file](#log-file) (set log level to `DEBUG` first to capture more detail).
+5. Steps to reproduce the issue, if possible.
+
+### Logging
+
+Siphon writes a rolling log file to `.data/siphon.log` (5 MB max, 1 backup). In Docker, this is inside the app data volume you mapped (e.g. `/path/to/appdata/siphon.log`). Set the log level to `DEBUG` before reproducing an issue to capture the most detail.
+
+#### Log Levels
 
 Siphon supports four log levels, configurable via the CLI or the Settings page in the web UI:
 
@@ -161,14 +173,9 @@ Set the log level:
 siphon config log-level DEBUG
 ```
 
-### Log File
+#### Browser Logs
 
-Siphon writes a rolling log file to `.data/siphon.log` (5 MB max, 1 backup). In Docker, this is inside the app data volume you mapped (e.g. `/path/to/appdata/siphon.log`).
-
-**When submitting an issue, please include:**
-1. The relevant section of `siphon.log` (set log level to `DEBUG` first to capture more detail).
-2. The playlist or video URL that triggered the problem.
-3. Your Siphon version and yt-dlp version (shown in the web UI footer).
+Siphon can stream server logs to the browser console for real-time debugging. Enable this in the web UI settings page by toggling **Browser Logs**. Once enabled, open the browser developer tools (F12) to see log output in the console.
 
 ## License
 
