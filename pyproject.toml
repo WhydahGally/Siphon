@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "siphon"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "yt-dlp==2026.3.17",
+    "requests>=2.32",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "mutagen>=1.47",
+]
+
+[project.scripts]
+siphon = "siphon.watcher:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

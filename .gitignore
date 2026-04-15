@@ -205,3 +205,10 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Siphon runtime data (DB + yt-dlp archives)
+.data/
+
+# UI build artifacts
+src/ui/node_modules/
+src/ui/dist/
