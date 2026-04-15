@@ -33,7 +33,7 @@ Siphon is primarily developed using spec-driven development through [OpenSpec](h
 ### Unraid
 
 Siphon is built container-first, designed for Unraid.<br>
-Install it from Community Apps:
+Install it from Community Apps (Coming soon):
 1. Open the **Community Apps** plugin in your Unraid dashboard.
 2. Search for **Siphon**.
 3. Click **Install** and configure:
