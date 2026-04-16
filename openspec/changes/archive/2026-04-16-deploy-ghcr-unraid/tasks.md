@@ -17,7 +17,7 @@
 
 ## 5. Unraid Template
 
-- [x] 5.1 Create `unraid/siphon.xml` with port 8000, volume mappings, PUID/PGID, UMASK, icon URL, and Downloaders category
+- [x] 5.1 Create `unraid/siphon.xml` with port 8778:8000, volume mappings, PUID/PGID, UMASK, icon URL, and Downloaders category
 
 ## 6. Verify
 
