@@ -1300,7 +1300,7 @@ def api_rename_playlist_item(playlist_id: str, video_id: str, body: RenameReques
     _, ext = extract_extension(os.path.basename(old_path))
     new_path = os.path.join(item_dir, f"{new_name}{ext}")
 
-    if os.path.exists(new_path) and os.path.normpath(new_path) != os.path.normpath(old_path):
+    if os.path.exists(new_path) and not os.path.samefile(new_path, old_path):
         raise HTTPException(status_code=409, detail=f"A file named '{new_name}{ext}' already exists.")
 
     os.rename(old_path, new_path)
@@ -1627,7 +1627,7 @@ def api_rename_job_item(job_id: str, video_id: str, body: RenameRequest):
     _, ext = extract_extension(os.path.basename(old_path))
     new_path = os.path.join(item_dir, f"{new_name}{ext}")
 
-    if os.path.exists(new_path) and os.path.normpath(new_path) != os.path.normpath(old_path):
+    if os.path.exists(new_path) and not os.path.samefile(new_path, old_path):
         raise HTTPException(status_code=409, detail=f"A file named '{new_name}{ext}' already exists.")
 
     os.rename(old_path, new_path)
