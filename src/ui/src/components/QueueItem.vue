@@ -32,9 +32,7 @@ async function saveEdit() {
   if (!newName) { cancelEdit(); return }
   if (newName === (props.item.renamed_to || props.item.yt_title)) { cancelEdit(); return }
 
-  const url = props.playlistId
-    ? `/playlists/${props.playlistId}/items/${props.item.video_id}/rename`
-    : `/jobs/${props.jobId}/items/${props.item.video_id}/rename`
+  const url = `/jobs/${props.jobId}/items/${props.item.video_id}/rename`
 
   try {
     const resp = await fetch(url, {
