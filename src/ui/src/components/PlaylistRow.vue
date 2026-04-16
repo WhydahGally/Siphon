@@ -258,6 +258,7 @@ onMounted(() => {
       v-if="expanded"
       :items="items"
       :loading="itemsLoading"
+      :playlist-id="playlist.id"
     />
   </div>
 </template>

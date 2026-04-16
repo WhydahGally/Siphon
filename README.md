@@ -130,6 +130,7 @@ npm run dev
 | `siphon config <key> [<value>]`                   | Get or set a global config value (`log-level`, `interval`, `max-concurrent-downloads`, `mb-user-agent`, `auto-rename`, `theme`, `browser-logs`, `title-noise-patterns`). |
 | `siphon config-playlist <name> [<key> [<value>]]` | Get or set per-playlist config (`interval`, `auto-rename`, `watched`).                                                    |
 | `siphon playlist-items <name>`                    | List all downloaded items for a playlist.                                                                                 |
+| `siphon rename-item <playlist> <current-name> <new-name>` | Rename a downloaded item in a playlist. Renames the file on disk and sets the rename tier to `manual`.              |
 
 ## Submitting Issues
 

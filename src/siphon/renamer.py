@@ -336,3 +336,42 @@ def _mb_format_name(recording: dict) -> str:
 
     featured = ", ".join(sanitize(n) for n in artist_names[1:])
     return f"{primary} - {track} feat. {featured}"
+
+
+# ---------------------------------------------------------------------------
+# Manual rename helpers
+# ---------------------------------------------------------------------------
+
+# All extensions Siphon can produce via yt-dlp postprocessors.
+_KNOWN_EXTENSIONS = {"mp3", "opus", "mp4", "mkv", "webm"}
+
+
+def extract_extension(filename: str) -> tuple:
+    """Split a filename into (stem, '.ext').
+
+    Checks against Siphon's known format extensions first, falls back to
+    ``os.path.splitext`` for unrecognised extensions.
+    """
+    for ext in _KNOWN_EXTENSIONS:
+        suffix = f".{ext}"
+        if filename.endswith(suffix):
+            return filename[: -len(suffix)], suffix
+    return os.path.splitext(filename)
+
+
+def resolve_file_path(directory: str, stem: str) -> Optional[str]:
+    """Find a file in *directory* whose name starts with *stem* and has a known extension.
+
+    Returns the absolute path if found, ``None`` otherwise.
+    """
+    for ext in _KNOWN_EXTENSIONS:
+        candidate = os.path.join(directory, f"{stem}.{ext}")
+        if os.path.isfile(candidate):
+            return candidate
+    # Fallback: try any file matching stem.* in case of an unexpected extension.
+    for entry in os.scandir(directory):
+        if entry.is_file():
+            name_stem, _ = os.path.splitext(entry.name)
+            if name_stem == stem:
+                return entry.path
+    return None

@@ -1,0 +1,83 @@
+## Context
+
+Siphon's auto-renamer runs a three-tier chain (yt_metadata → musicbrainz → yt_title_fallback) at download time. The result is written to the `items` table (`renamed_to`, `rename_tier`) and the file on disk is renamed accordingly. After that point, both the DB record and the filename are immutable through Siphon's interfaces.
+
+The manual rename feature adds a post-download mutation path: users can override the resolved name via CLI or web UI. The rename updates the DB, renames the file on disk, and sets `rename_tier='manual'`. For single-video downloads (not tracked in DB), the rename updates the in-memory JobStore and the file on disk.
+
+## Goals / Non-Goals
+
+**Goals:**
+- Allow renaming any downloaded playlist item via CLI and web UI
+- Keep DB, filesystem, and UI display consistent after rename
+- Support renaming items regardless of whether auto-rename was enabled
+- Support renaming single-video downloads in the download queue (in-memory only)
+
+**Non-Goals:**
+- Batch rename (multiple items at once)
+- Undo/revert to previous name
+- Cross-playlist propagation (renaming in one playlist does not affect others)
+- Renaming items while download is in progress (only `done` state)
+
+## Decisions
+
+### 1. File extension resolution — extract from known formats set
+
+The system needs to know the file extension to construct the new path after rename. Three options were considered:
+
+| Option | Approach | Verdict |
+|--------|----------|---------|
+| Store extension in DB | New column `file_ext` | Over-engineered; schema change for data the filesystem already knows |
+| Glob the download directory | `glob.glob(f"{stem}.*")` | Fragile if names collide; unnecessary filesystem scan |
+| **Extract from known extensions** | Match tail of filename against `VALID_AUDIO_FORMATS ∪ VALID_VIDEO_FORMATS` | Reuses existing constants; pure string operation; no I/O |
+
+**Decision**: Extract the extension by matching the file's suffix against the known set `{"mp3", "opus", "mp4", "mkv", "webm"}` from `formats.py`. Fallback to `os.path.splitext()` for unexpected extensions.
+
+### 2. Resolving the current filename on disk
+
+When `renamed_to` is set, the file on disk is `<renamed_to>.<ext>`. When `renamed_to` is NULL (auto-rename was off), the file is `<yt_title>.<ext>` (the yt-dlp default output template). The rename function resolves the old stem as `renamed_to or yt_title`, then scans the playlist's download directory for a file matching `<stem>.<known_ext>`.
+
+### 3. CLI syntax — three positional arguments
+
+`siphon rename-item <playlist> <current-name> <new-name>`
+
+Playlist is always required (scoped rename). This avoids ambiguity when the same `renamed_to` value exists across playlists. The command calls `PUT /playlists/{id}/items/{video_id}/rename` through the daemon.
+
+Item lookup: the daemon resolves `current-name` to a `video_id` by matching against `renamed_to` (or `yt_title` if `renamed_to` is NULL) within the specified playlist. If no match or multiple matches, return an error.
+
+### 4. Single-video rename — in-memory only
+
+Single-video downloads have `playlist_id=None` and are not written to the `items` table. Rename for singles updates `JobItem.renamed_to` in the daemon's `JobStore` (in-memory) and renames the file on disk. No DB write. The renamed value persists across page refreshes (JobStore lives for the daemon session) but is lost on daemon restart — acceptable since the file on disk retains the new name.
+
+The rename endpoint for singles is separate: `PUT /jobs/{job_id}/items/{video_id}/rename` since there's no `playlist_id` to route through.
+
+### 5. UI inline edit — reuse Settings.vue pattern
+
+The inline edit UX mirrors the interval input in Settings.vue: click-to-edit, text input with Save button, click-outside-to-cancel, Escape-to-cancel, Enter-to-save. The pencil icon appears on hover over the renamed portion of the item row. For items without a rename (`renamed_to` is NULL), clicking the pencil inserts the arrow and text input inline, prefilled with `yt_title`.
+
+Edit is available:
+- `PlaylistItemsPanel.vue`: all items (always rendered after download)
+- `QueueItem.vue`: only items with `state === 'done'` (avoids race with auto-renamer)
+
+### 6. API endpoint design
+
+**Playlist items**: `PUT /playlists/{playlist_id}/items/{video_id}/rename`
+- Body: `{ "new_name": "string" }`
+- Resolves current file path, renames on disk, updates DB
+- Returns 200 with updated item record
+
+**Single-video items**: `PUT /jobs/{job_id}/items/{video_id}/rename`
+- Body: `{ "new_name": "string" }`
+- Resolves current file path from JobStore, renames on disk, updates JobItem in memory
+- Returns 200 with updated item record
+
+Both endpoints sanitize `new_name` using the existing `sanitize()` function from `renamer.py` to strip filesystem-unsafe characters.
+
+## Risks / Trade-offs
+
+**[File not found on disk]** → If the file was moved or deleted outside Siphon, `os.rename()` will fail. The endpoint returns 404 with a descriptive error. The DB is not updated (rename is atomic: both succeed or neither does).
+
+**[Name collision on disk]** → If `<new_name>.<ext>` already exists in the download directory, `os.rename()` would silently overwrite on some platforms. Mitigation: check for existence before renaming and return 409 if a file with the target name already exists.
+
+**[Concurrent rename of same item]** → Two UI tabs or CLI + UI could race. Low risk in practice (single user). The DB update uses the `video_id`+`playlist_id` PK so the last write wins. File rename is atomic on POSIX. Acceptable.
+
+**[Extension not in known set]** → An older download or edge case could have an unrecognised extension. Fallback to `os.path.splitext()` handles this gracefully.

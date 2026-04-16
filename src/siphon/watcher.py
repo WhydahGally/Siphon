@@ -28,6 +28,8 @@ CLI usage:
     siphon list
     siphon delete <name>
     siphon config-playlist <name> [<key> [<value>]]
+    siphon playlist-items <name>
+    siphon rename-item <playlist> <current-name> <new-name>
 """
 import asyncio
 import json
@@ -57,7 +59,7 @@ from yt_dlp import YoutubeDL
 from siphon import registry
 from siphon.downloader import download, ItemRecord
 from siphon.formats import DownloadOptions, VALID_AUDIO_FORMATS, VALID_VIDEO_FORMATS, VALID_RESOLUTIONS, check_ffmpeg
-from siphon.renamer import sanitize as sanitize_name, _DEFAULT_NOISE_PATTERNS
+from siphon.renamer import sanitize as sanitize_name, _DEFAULT_NOISE_PATTERNS, resolve_file_path, extract_extension
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +111,7 @@ class DownloadJob:
     playlist_name: Optional[str]
     items: List[JobItem]
     created_at: float
+    output_dir: Optional[str] = None
     cancelled: bool = False
     original_total: int = field(default=0, init=False)
 
@@ -156,6 +159,7 @@ class JobStore:
         playlist_id: Optional[str],
         playlist_name: Optional[str],
         entries: List[dict],
+        output_dir: Optional[str] = None,
     ) -> str:
         job_id = str(uuid.uuid4())
         items = [
@@ -168,6 +172,7 @@ class JobStore:
             playlist_name=playlist_name,
             items=items,
             created_at=time.time(),
+            output_dir=output_dir,
         )
         with self._lock:
             # Atomic guard: reject if an active (non-terminal) job already exists
@@ -1056,6 +1061,10 @@ class JobCreate(BaseModel):
     check_interval_secs: Optional[int] = None
 
 
+class RenameRequest(BaseModel):
+    new_name: str
+
+
 # ------------------------------------------------------------------
 # /playlists endpoints
 # ------------------------------------------------------------------
@@ -1263,6 +1272,44 @@ def api_get_playlist_items(playlist_id: str):
     return registry.list_items_for_playlist(playlist_id)
 
 
+@app.put("/playlists/{playlist_id}/items/{video_id}/rename")
+def api_rename_playlist_item(playlist_id: str, video_id: str, body: RenameRequest):
+    """Rename a downloaded playlist item on disk and in the DB."""
+    playlist = registry.get_playlist_by_id(playlist_id)
+    if playlist is None:
+        raise HTTPException(status_code=404, detail="Playlist not found.")
+
+    item = registry.get_item(video_id, playlist_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found in this playlist.")
+
+    new_name = sanitize_name(body.new_name.strip())
+    if not new_name:
+        raise HTTPException(status_code=422, detail="New name is empty or contains only unsafe characters.")
+
+    # Resolve paths.
+    output_dir = _resolve_output_dir(playlist["output_dir"])
+    safe_folder = sanitize_name(playlist["name"]) or playlist_id
+    item_dir = os.path.join(output_dir, safe_folder)
+
+    old_stem = item["renamed_to"] or item["yt_title"]
+    old_path = resolve_file_path(item_dir, old_stem)
+    if old_path is None:
+        raise HTTPException(status_code=404, detail=f"File not found on disk for '{old_stem}'.")
+
+    _, ext = extract_extension(os.path.basename(old_path))
+    new_path = os.path.join(item_dir, f"{new_name}{ext}")
+
+    if os.path.exists(new_path) and os.path.normpath(new_path) != os.path.normpath(old_path):
+        raise HTTPException(status_code=409, detail=f"A file named '{new_name}{ext}' already exists.")
+
+    os.rename(old_path, new_path)
+    registry.update_item_rename(video_id, playlist_id, new_name)
+
+    updated = registry.get_item(video_id, playlist_id)
+    return updated
+
+
 @app.post("/playlists/{playlist_id}/sync-failed", status_code=202)
 def api_sync_failed_playlist(playlist_id: str):
     row = registry.get_playlist_by_id(playlist_id)
@@ -1435,7 +1482,7 @@ def api_create_job(body: JobCreate):
         raise HTTPException(status_code=422, detail="Nothing new to download.")
 
     try:
-        job_id = _job_store.create_job(playlist_id, playlist_name, entries)
+        job_id = _job_store.create_job(playlist_id, playlist_name, entries, output_dir=output_dir)
     except ValueError as exc:
         if str(exc) == "active_job_exists":
             raise HTTPException(
@@ -1540,6 +1587,64 @@ def api_delete_job(job_id: str):
         raise HTTPException(status_code=409, detail="Job has items still in progress.")
     if not found:
         raise HTTPException(status_code=404, detail="Job not found.")
+
+
+@app.put("/jobs/{job_id}/items/{video_id}/rename")
+def api_rename_job_item(job_id: str, video_id: str, body: RenameRequest):
+    """Rename a downloaded item within a job (single-video or playlist). Updates in-memory state + disk."""
+    if _job_store is None:
+        raise HTTPException(status_code=503, detail="Job store not initialized.")
+    job = _job_store.get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found.")
+
+    item = next((i for i in job.items if i.video_id == video_id), None)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found in this job.")
+    if item.state != "done":
+        raise HTTPException(status_code=409, detail="Item must be in done state to rename.")
+
+    new_name = sanitize_name(body.new_name.strip())
+    if not new_name:
+        raise HTTPException(status_code=422, detail="New name is empty or contains only unsafe characters.")
+
+    # Resolve the file on disk.
+    if job.playlist_id is not None:
+        playlist = registry.get_playlist_by_id(job.playlist_id)
+        if playlist is None:
+            raise HTTPException(status_code=404, detail="Playlist not found.")
+        base_dir = _resolve_output_dir(playlist["output_dir"])
+        safe_folder = sanitize_name(playlist["name"]) or job.playlist_id
+        item_dir = os.path.join(base_dir, safe_folder)
+    else:
+        item_dir = _resolve_output_dir(job.output_dir or _DEFAULT_OUTPUT_DIR)
+
+    old_stem = item.renamed_to or item.yt_title
+    old_path = resolve_file_path(item_dir, old_stem)
+    if old_path is None:
+        raise HTTPException(status_code=404, detail=f"File not found on disk for '{old_stem}'.")
+
+    _, ext = extract_extension(os.path.basename(old_path))
+    new_path = os.path.join(item_dir, f"{new_name}{ext}")
+
+    if os.path.exists(new_path) and os.path.normpath(new_path) != os.path.normpath(old_path):
+        raise HTTPException(status_code=409, detail=f"A file named '{new_name}{ext}' already exists.")
+
+    os.rename(old_path, new_path)
+    item.renamed_to = new_name
+    item.rename_tier = "manual"
+
+    # Also update DB for playlist items.
+    if job.playlist_id is not None:
+        registry.update_item_rename(video_id, job.playlist_id, new_name)
+
+    return {
+        "video_id": item.video_id,
+        "yt_title": item.yt_title,
+        "renamed_to": item.renamed_to,
+        "rename_tier": item.rename_tier,
+        "state": item.state,
+    }
 
 
 @app.post("/jobs/cancel-all")
@@ -2286,6 +2391,48 @@ def cmd_playlist_items(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_rename_item(args: argparse.Namespace) -> int:
+    """Rename a downloaded item within a playlist.
+
+    Usage: siphon rename-item <playlist> <current-name> <new-name>
+
+    Renames the file on disk and updates the database. The rename tier is set
+    to 'manual'.
+    """
+    playlists = _daemon_get("/playlists")
+    match = next((p for p in playlists if p["name"] == args.playlist), None)
+    if match is None:
+        logger.error("No playlist named '%s'. Run 'siphon list' to see registered playlists.", args.playlist)
+        return 1
+
+    # Find the item by matching current-name against renamed_to or yt_title.
+    items = _daemon_get(f"/playlists/{match['id']}/items")
+    item = next(
+        (i for i in items if (i.get("renamed_to") or i["yt_title"]) == args.current_name),
+        None,
+    )
+    if item is None:
+        logger.error("No item named '%s' in playlist '%s'.", args.current_name, args.playlist)
+        return 1
+
+    try:
+        resp = _requests.put(
+            f"{_DAEMON_URL}/playlists/{match['id']}/items/{item['video_id']}/rename",
+            json={"new_name": args.new_name},
+            timeout=10,
+        )
+    except _requests.exceptions.ConnectionError:
+        print("siphon watch is not running. Start it with 'siphon watch'.", file=sys.stderr)
+        return 1
+
+    if resp.status_code != 200:
+        _daemon_handle_error(resp)
+        return 1
+
+    print(f'Renamed: "{args.current_name}" → "{args.new_name}"')
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -2394,6 +2541,12 @@ def main() -> None:
     p_pi = sub.add_parser("playlist-items", help="List all downloaded items for a playlist.")
     p_pi.add_argument("name", help="Name of the playlist.")
 
+    # -- rename-item --
+    p_ri = sub.add_parser("rename-item", help="Rename a downloaded item in a playlist.")
+    p_ri.add_argument("playlist", help="Name of the playlist.")
+    p_ri.add_argument("current_name", metavar="current-name", help="Current name of the item (renamed_to or yt_title).")
+    p_ri.add_argument("new_name", metavar="new-name", help="New name for the item.")
+
     args = parser.parse_args()
 
     dispatch = {
@@ -2409,6 +2562,7 @@ def main() -> None:
         "config": cmd_config,
         "config-playlist": cmd_config_playlist,
         "playlist-items": cmd_playlist_items,
+        "rename-item": cmd_rename_item,
     }
     sys.exit(dispatch[args.command](args))
 

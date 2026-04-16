@@ -248,6 +248,7 @@ defineExpose({ addJob })
             :key="item.video_id"
             :item="item"
             :job-id="job.job_id"
+            :playlist-id="job.playlist_id"
           />
         </div>
 
@@ -259,6 +260,7 @@ defineExpose({ addJob })
               :key="item.video_id"
               :item="item"
               :job-id="job.job_id"
+              :playlist-id="null"
             />
           </template>
         </div>
