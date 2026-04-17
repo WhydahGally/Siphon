@@ -1,11 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Template exposes web UI port
-The Unraid template SHALL configure port 8000 as a TCP port mapping with the WebUI directive pointing to it.
+The Unraid template SHALL configure container port 8000 as a TCP port mapping with a default host port of 8778 and the WebUI directive pointing to it.
 
 #### Scenario: Port configuration
 - **WHEN** a user installs Siphon from Unraid CA
-- **THEN** port 8000 is mapped and the Unraid dashboard links to the web UI at that port
+- **THEN** container port 8000 is mapped to host port 8778 by default and the Unraid dashboard links to the web UI at that port
 
 ### Requirement: Template exposes volume mappings
 The template SHALL expose two path mappings: one for downloads (`/app/downloads`) and one for app data (`/app/.data`).

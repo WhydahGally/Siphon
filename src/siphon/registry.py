@@ -326,6 +326,36 @@ def count_items(playlist_id: str) -> int:
     return row[0] if row else 0
 
 
+def get_item(video_id: str, playlist_id: str) -> Optional[dict]:
+    """Fetch a single item row by its composite PK. Returns None if not found."""
+    conn = _get_conn()
+    row = conn.execute(
+        """
+        SELECT video_id, playlist_id, yt_title, renamed_to, rename_tier,
+               uploader, channel_url, duration_secs, downloaded_at
+        FROM items
+        WHERE video_id = ? AND playlist_id = ?
+        """,
+        (video_id, playlist_id),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def update_item_rename(video_id: str, playlist_id: str, new_name: str) -> None:
+    """Update renamed_to and set rename_tier='manual' for the given item."""
+    conn = _get_conn()
+    cursor = conn.execute(
+        """
+        UPDATE items SET renamed_to = ?, rename_tier = 'manual'
+        WHERE video_id = ? AND playlist_id = ?
+        """,
+        (new_name, video_id, playlist_id),
+    )
+    conn.commit()
+    if cursor.rowcount == 0:
+        raise ValueError(f"Item not found: video_id={video_id}, playlist_id={playlist_id}")
+
+
 def list_items_for_playlist(playlist_id: str) -> list:
     """Return all item rows for a playlist ordered by downloaded_at ascending."""
     conn = _get_conn()

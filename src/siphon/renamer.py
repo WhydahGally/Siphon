@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class RenameResult:
     original_title: str
     final_name: str        # filename stem, no extension
-    tier: str              # "yt_metadata" | "musicbrainz" | "yt_title_fallback"
+    tier: str              # "yt_metadata" | "musicbrainz" | "yt_title"
     new_path: str          # absolute path to renamed file on disk
 
 # ---------------------------------------------------------------------------
@@ -33,6 +33,20 @@ _MB_API_URL = "https://musicbrainz.org/ws/2/recording"
 _MB_SCORE_MIN = 85
 
 _UNSAFE_CHARS = re.compile(r'[/\\:*?"<>|]')
+
+# Visual-equivalent Unicode replacements for filesystem-unsafe ASCII characters.
+# Each maps an unsafe char to a safe lookalike that preserves the title's appearance.
+_VISUAL_EQUIVALENT_MAP: dict[str, str] = {
+    "/":  "\u29F8",   # ⧸  BIG SOLIDUS
+    "\\": "\u29F9",   # ⧹  BIG REVERSE SOLIDUS
+    ":":  "\uA789",   # ꞉  MODIFIER LETTER COLON
+    "*":  "\uFF0A",   # ＊ FULLWIDTH ASTERISK
+    "?":  "\uFF1F",   # ？ FULLWIDTH QUESTION MARK
+    '"':  "\uFF02",   # ＂ FULLWIDTH QUOTATION MARK
+    "<":  "\uFF1C",   # ＜ FULLWIDTH LESS-THAN SIGN
+    ">":  "\uFF1E",   # ＞ FULLWIDTH GREATER-THAN SIGN
+    "|":  "\uFF5C",   # ｜ FULLWIDTH VERTICAL LINE
+}
 
 # Separators used only for the INFO-level diagnostic log.
 _TITLE_SEPARATORS = [' ⧸⧸ ', ' // ', ' – ', ' — ', ' - ']
@@ -53,6 +67,7 @@ _DEFAULT_NOISE_PATTERNS = [
     r'4k',
     r'1080p',
     r'official',
+    r'\d{4}\s*remaster(?:ed)?',
 ]
 
 
@@ -115,10 +130,36 @@ def rename_file(
         logger.debug("renamer: mb_user_agent not configured, skipping tier 2")
 
     # Tier 3: YT title fallback
-    final_name = strip_noise(sanitize(cleaned_title), noise_patterns) if cleaned_title else "unknown"
+    if cleaned_title:
+        sep_result = _try_separator_split(cleaned_title)
+        if sep_result:
+            artist, track = sep_result
+            final_name = strip_noise(f"{artist} - {track}", noise_patterns)
+        else:
+            final_name = strip_noise(safe_replace(cleaned_title), noise_patterns)
+    else:
+        final_name = "unknown"
     new_path = _do_rename(filepath, final_name)
     logger.debug("renamer: tier 3 fallback to YT title")
-    return RenameResult(original_title=yt_title, final_name=final_name, tier="yt_title_fallback", new_path=new_path)
+    return RenameResult(original_title=yt_title, final_name=final_name, tier="yt_title", new_path=new_path)
+
+
+def passthrough_rename(info_dict: dict) -> Optional["RenameResult"]:
+    """Rename a downloaded file using the raw YT title with visual-equivalent safe chars.
+
+    No noise stripping, no MusicBrainz, no metadata extraction.
+    Used when auto-rename is OFF to ensure DB and disk filenames agree.
+    """
+    filepath = info_dict.get("filepath") or info_dict.get("filename")
+    if not filepath:
+        logger.warning("renamer: no filepath in info_dict, skipping passthrough rename")
+        return None
+
+    yt_title = (info_dict.get("title") or "").strip()
+    final_name = safe_replace(yt_title) if yt_title else "unknown"
+    new_path = _do_rename(filepath, final_name)
+    logger.debug("renamer: passthrough rename applied")
+    return RenameResult(original_title=yt_title, final_name=final_name, tier="yt_title", new_path=new_path)
 
 
 # ---------------------------------------------------------------------------
@@ -144,6 +185,13 @@ def _do_rename(filepath: str, name: str) -> str:
 def sanitize(name: str) -> str:
     """Strip filesystem-unsafe characters: / \\ : * ? \" < > |"""
     return _UNSAFE_CHARS.sub("", name).strip()
+
+
+def safe_replace(name: str) -> str:
+    """Replace filesystem-unsafe characters with visual-equivalent Unicode lookalikes."""
+    for unsafe, safe in _VISUAL_EQUIVALENT_MAP.items():
+        name = name.replace(unsafe, safe)
+    return name.strip()
 
 
 def _resolve_primary_artist(artist_field: str, info_dict: dict) -> str:
@@ -195,6 +243,22 @@ def strip_noise(title: str, patterns: Optional[list] = None) -> str:
     if title != original:
         logger.debug("Stripped noise: %r → %r", original, title)
     return title
+
+
+def _try_separator_split(title: str) -> Optional[tuple]:
+    """Try to split a title on a known separator into (artist, track).
+
+    Returns (artist, track) if a separator is found, None otherwise.
+    Both parts are sanitized to remove any remaining unsafe chars.
+    """
+    for sep in _TITLE_SEPARATORS:
+        if sep in title:
+            parts = title.split(sep, 1)
+            artist = sanitize(parts[0].strip())
+            track = sanitize(parts[1].strip())
+            if artist and track:
+                return artist, track
+    return None
 
 
 def _normalize(s: str) -> str:
@@ -336,3 +400,114 @@ def _mb_format_name(recording: dict) -> str:
 
     featured = ", ".join(sanitize(n) for n in artist_names[1:])
     return f"{primary} - {track} feat. {featured}"
+
+
+# ---------------------------------------------------------------------------
+# Manual rename helpers
+# ---------------------------------------------------------------------------
+
+# All extensions Siphon can produce via yt-dlp postprocessors.
+_KNOWN_EXTENSIONS = {"mp3", "opus", "mp4", "mkv", "webm"}
+
+
+def extract_extension(filename: str) -> tuple:
+    """Split a filename into (stem, '.ext').
+
+    Checks against Siphon's known format extensions first, falls back to
+    ``os.path.splitext`` for unrecognised extensions.
+    """
+    for ext in _KNOWN_EXTENSIONS:
+        suffix = f".{ext}"
+        if filename.endswith(suffix):
+            return filename[: -len(suffix)], suffix
+    return os.path.splitext(filename)
+
+
+def resolve_file_path(directory: str, stem: str) -> Optional[str]:
+    """Find a file in *directory* whose name starts with *stem* and has a known extension.
+
+    Returns the absolute path if found, ``None`` otherwise.
+    """
+    for ext in _KNOWN_EXTENSIONS:
+        candidate = os.path.join(directory, f"{stem}.{ext}")
+        if os.path.isfile(candidate):
+            return candidate
+    # Fallback: try any file matching stem.* in case of an unexpected extension.
+    for entry in os.scandir(directory):
+        if entry.is_file():
+            name_stem, _ = os.path.splitext(entry.name)
+            if name_stem == stem:
+                return entry.path
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Metadata embedding
+# ---------------------------------------------------------------------------
+
+def embed_metadata(filepath: str, original_title: str, final_name: str) -> None:
+    """Write the original YT title and resolved name into the file's audio metadata.
+
+    MP3:  ID3 ``TXXX:original_title`` for the raw YT title, ``TIT2`` for the resolved name.
+    Opus: Vorbis ``ORIGINAL_TITLE`` for the raw YT title, ``TITLE`` for the resolved name.
+    Other formats are silently skipped.
+    """
+    if not original_title and not final_name:
+        return
+
+    ext = os.path.splitext(filepath)[1].lower()
+    try:
+        if ext == ".mp3":
+            from mutagen.id3 import ID3, TIT2, TXXX, ID3NoHeaderError
+            try:
+                tags = ID3(filepath)
+            except ID3NoHeaderError:
+                tags = ID3()
+            if original_title:
+                tags.add(TXXX(encoding=3, desc="original_title", text=[original_title]))
+            if final_name:
+                tags.add(TIT2(encoding=3, text=[final_name]))
+            tags.save(filepath)
+        elif ext == ".opus":
+            from mutagen.oggopus import OggOpus
+            audio = OggOpus(filepath)
+            if original_title:
+                audio["ORIGINAL_TITLE"] = [original_title]
+            if final_name:
+                audio["TITLE"] = [final_name]
+            audio.save()
+        else:
+            return
+        logger.debug("Embedded metadata in %s", os.path.basename(filepath))
+    except Exception as exc:
+        logger.warning("Failed to embed metadata in %s: %s", filepath, exc)
+
+
+def update_title_metadata(filepath: str, new_title: str) -> None:
+    """Update only the TITLE metadata field in an audio file.
+
+    Used after manual renames to keep metadata in sync with the filename.
+    """
+    if not new_title:
+        return
+
+    ext = os.path.splitext(filepath)[1].lower()
+    try:
+        if ext == ".mp3":
+            from mutagen.id3 import ID3, TIT2, ID3NoHeaderError
+            try:
+                tags = ID3(filepath)
+            except ID3NoHeaderError:
+                tags = ID3()
+            tags.add(TIT2(encoding=3, text=[new_title]))
+            tags.save(filepath)
+        elif ext == ".opus":
+            from mutagen.oggopus import OggOpus
+            audio = OggOpus(filepath)
+            audio["TITLE"] = [new_title]
+            audio.save()
+        else:
+            return
+        logger.debug("Updated TITLE metadata in %s", os.path.basename(filepath))
+    except Exception as exc:
+        logger.warning("Failed to update TITLE in %s: %s", filepath, exc)
