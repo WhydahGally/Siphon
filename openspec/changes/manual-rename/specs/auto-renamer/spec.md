@@ -55,13 +55,13 @@ The `"manual"` tier is not produced by the automatic rename chain. It is set exc
 When auto-rename is disabled, the renamer SHALL still run a lightweight rename pass to ensure the DB's `renamed_to` field matches the actual file on disk. This prevents mismatches caused by yt-dlp's own filename sanitisation (e.g. replacing `/` with `⧸`).
 
 `RenameResult` for passthrough:
-- `tier`: `"yt_title_passthrough"`
+- `tier`: `"yt_title"`
 - `final_name`: the YT title with filesystem-unsafe chars replaced by visual-equivalent Unicode lookalikes
 - No noise stripping, no MusicBrainz lookup, no metadata extraction
 
 #### Scenario: Auto-rename OFF — passthrough rename applied
 - **WHEN** auto-rename is OFF
-- **THEN** the renamer SHALL apply the visual-equivalent character map to the raw YT title, rename the file on disk to the result (preserving extension), and return a `RenameResult` with `tier="yt_title_passthrough"`
+- **THEN** the renamer SHALL apply the visual-equivalent character map to the raw YT title, rename the file on disk to the result (preserving extension), and return a `RenameResult` with `tier="yt_title"`
 - **NOTE** noise stripping SHALL NOT be applied. The title's original appearance is preserved, with only unsafe characters swapped for safe lookalikes.
 
 #### Scenario: Auto-rename OFF — separator characters preserved
@@ -91,3 +91,28 @@ This map SHALL be used:
 The map SHALL NOT be used:
 1. In tier 1 or tier 2 (those already produce clean names)
 2. In tier 3 when a separator IS found (the split-and-reformat logic handles that)
+
+### NEW Requirement: Metadata embedding at download time
+
+After renaming, the renamer SHALL embed metadata into the downloaded file using mutagen:
+
+- **ORIGINAL_TITLE**: the raw YT title before any renaming (MP3: `TXXX` frame with desc `original_title`; Opus: `ORIGINAL_TITLE` Vorbis comment)
+- **TITLE**: the resolved filename stem used for the rename (MP3: `TIT2` frame; Opus: `TITLE` Vorbis comment)
+
+This ensures media players (e.g. Jellyfin) display the resolved name rather than the raw YT title.
+
+#### Scenario: Metadata embedded on download
+- **WHEN** a file is renamed (any tier, including passthrough)
+- **THEN** the renamer SHALL write both `ORIGINAL_TITLE` and `TITLE` into the file's metadata
+- **NOTE** only MP3 and Opus formats are supported; other formats are silently skipped
+
+#### Scenario: TITLE updated on manual rename
+- **WHEN** a user manually renames an item via API or UI
+- **THEN** the rename endpoint SHALL update the `TITLE` metadata field to match the new name
+- **NOTE** `ORIGINAL_TITLE` is NOT modified — it always preserves the raw YT title
+
+### NEW Requirement: Remaster noise pattern
+
+The default noise pattern list SHALL include a pattern to strip year-prefixed remaster suffixes: `\d{4}\s*remaster(?:ed)?`
+
+This matches patterns like `(2016 Remaster)`, `(2016 Remastered)`, `[2024 REMASTER]` (case-insensitive via `re.IGNORECASE`).

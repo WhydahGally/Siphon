@@ -35,7 +35,7 @@
 
 - [x] 6.1 Add `_VISUAL_EQUIVALENT_MAP` dict to `renamer.py` — maps each unsafe ASCII char (`/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|`) to its Unicode visual lookalike
 - [x] 6.2 Add `safe_replace(name: str) -> str` function to `renamer.py` — applies the visual-equivalent map to a string, replacing each unsafe char with its safe counterpart
-- [x] 6.3 Add `passthrough_rename(info_dict: dict) -> Optional[RenameResult]` function to `renamer.py` — applies `safe_replace` to the raw YT title (no noise stripping, no MB, no metadata), renames the file on disk, returns `RenameResult` with `tier="yt_title_passthrough"`
+- [x] 6.3 Add `passthrough_rename(info_dict: dict) -> Optional[RenameResult]` function to `renamer.py` — applies `safe_replace` to the raw YT title (no noise stripping, no MB, no metadata), renames the file on disk, returns `RenameResult` with `tier="yt_title"`
 - [x] 6.4 Update tier 3 in `rename_file()` — when a known separator is found in the title, split into artist/track and format as `Artist - Track` instead of using `sanitize()`
 - [x] 6.5 Update tier 3 in `rename_file()` — when NO separator is found, use `safe_replace()` instead of `sanitize()` to preserve title appearance
 
@@ -47,5 +47,7 @@
 
 ## 8. Embed original YT title in file metadata
 
-- [x] 8.1 Add `embed_original_title(filepath, original_title)` to `renamer.py` — write the original YT title into the file's metadata using mutagen (ID3 `TXXX:original_title` for MP3, `ORIGINAL_TITLE` Vorbis comment for Opus)
-- [x] 8.2 Call `embed_original_title` from `_RenamePostProcessor.run()` after rename completes — pass the final filepath and the original YT title
+- [x] 8.1 Add `embed_metadata(filepath, original_title, final_name)` to `renamer.py` — write original YT title (`TXXX:original_title` / `ORIGINAL_TITLE`) and resolved name (`TIT2` / `TITLE`) into file metadata for MP3 and Opus
+- [x] 8.2 Call `embed_metadata` from `_RenamePostProcessor.run()` after rename completes — pass final filepath, original YT title, and resolved name
+- [x] 8.3 Add `update_title_metadata(filepath, new_title)` to `renamer.py` — update only the TITLE field (ID3 `TIT2` / Vorbis `TITLE`) for MP3 and Opus
+- [x] 8.4 Call `update_title_metadata` from both rename endpoints in `watcher.py` after `os.rename` to keep metadata TITLE in sync with filename

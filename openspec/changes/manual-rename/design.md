@@ -76,7 +76,7 @@ Both endpoints sanitize `new_name` using the existing `sanitize()` function from
 
 Previously, when `auto_rename=False`, no post-processor was registered and files kept yt-dlp's default names. This caused a mismatch: the DB stored the raw `yt_title` (e.g. `BEACH HOUSE // Space Song` with ASCII `/`), but yt-dlp's filename sanitiser replaced unsafe characters with Unicode lookalikes (e.g. `⧸`). Manual rename couldn't find the file because `resolve_file_path` searched for the DB stem, not the actual filename on disk.
 
-**Decision**: Always register a rename post-processor, regardless of `auto_rename`. When OFF, it runs a lightweight "passthrough" tier: replace filesystem-unsafe characters with their visual-equivalent Unicode lookalikes (the same map yt-dlp uses), skip noise stripping, skip MusicBrainz, skip metadata tiers. The result is stored in `renamed_to` with `tier="yt_title_passthrough"`. This guarantees DB and disk always agree.
+**Decision**: Always register a rename post-processor, regardless of `auto_rename`. When OFF, it runs a lightweight "passthrough" tier: replace filesystem-unsafe characters with their visual-equivalent Unicode lookalikes (the same map yt-dlp uses), skip noise stripping, skip MusicBrainz, skip metadata tiers. The result is stored in `renamed_to` with `tier="yt_title"`. This guarantees DB and disk always agree.
 
 ### 8. Visual-equivalent character map for unsafe filesystem characters
 
