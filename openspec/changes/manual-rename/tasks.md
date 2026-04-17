@@ -30,3 +30,22 @@
 - [x] 5.2 Implement inline text input with same UX as PlaylistItemsPanel
 - [x] 5.3 Implement save handler — route to playlist rename endpoint if `playlist_id` is set, otherwise to job rename endpoint
 - [x] 5.4 Implement cancel behavior (click-outside, Escape)
+
+## 6. Backend — Always-rename and visual-equivalent character map
+
+- [x] 6.1 Add `_VISUAL_EQUIVALENT_MAP` dict to `renamer.py` — maps each unsafe ASCII char (`/`, `\`, `:`, `*`, `?`, `"`, `<`, `>`, `|`) to its Unicode visual lookalike
+- [x] 6.2 Add `safe_replace(name: str) -> str` function to `renamer.py` — applies the visual-equivalent map to a string, replacing each unsafe char with its safe counterpart
+- [x] 6.3 Add `passthrough_rename(info_dict: dict) -> Optional[RenameResult]` function to `renamer.py` — applies `safe_replace` to the raw YT title (no noise stripping, no MB, no metadata), renames the file on disk, returns `RenameResult` with `tier="yt_title_passthrough"`
+- [x] 6.4 Update tier 3 in `rename_file()` — when a known separator is found in the title, split into artist/track and format as `Artist - Track` instead of using `sanitize()`
+- [x] 6.5 Update tier 3 in `rename_file()` — when NO separator is found, use `safe_replace()` instead of `sanitize()` to preserve title appearance
+
+## 7. Integration — Always register rename post-processor
+
+- [x] 7.1 Update `downloader.py` — always register `_RenamePostProcessor`, passing a new flag to indicate whether full auto-rename or passthrough mode should be used
+- [x] 7.2 Update `_RenamePostProcessor.run()` — call `passthrough_rename()` when auto-rename is OFF, call `rename_file()` when auto-rename is ON
+- [x] 7.3 Update `_download_worker` in `watcher.py` — `renamed_to` and `rename_tier` are now always populated (no more `None` for auto-rename OFF)
+
+## 8. Embed original YT title in file metadata
+
+- [x] 8.1 Add `embed_original_title(filepath, original_title)` to `renamer.py` — write the original YT title into the file's metadata using mutagen (ID3 `TXXX:original_title` for MP3, `ORIGINAL_TITLE` Vorbis comment for Opus)
+- [x] 8.2 Call `embed_original_title` from `_RenamePostProcessor.run()` after rename completes — pass the final filepath and the original YT title

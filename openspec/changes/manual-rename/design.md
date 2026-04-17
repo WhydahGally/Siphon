@@ -72,6 +72,43 @@ Edit is available:
 
 Both endpoints sanitize `new_name` using the existing `sanitize()` function from `renamer.py` to strip filesystem-unsafe characters.
 
+### 7. Always-rename — run a rename pass even when auto-rename is OFF
+
+Previously, when `auto_rename=False`, no post-processor was registered and files kept yt-dlp's default names. This caused a mismatch: the DB stored the raw `yt_title` (e.g. `BEACH HOUSE // Space Song` with ASCII `/`), but yt-dlp's filename sanitiser replaced unsafe characters with Unicode lookalikes (e.g. `⧸`). Manual rename couldn't find the file because `resolve_file_path` searched for the DB stem, not the actual filename on disk.
+
+**Decision**: Always register a rename post-processor, regardless of `auto_rename`. When OFF, it runs a lightweight "passthrough" tier: replace filesystem-unsafe characters with their visual-equivalent Unicode lookalikes (the same map yt-dlp uses), skip noise stripping, skip MusicBrainz, skip metadata tiers. The result is stored in `renamed_to` with `tier="yt_title_passthrough"`. This guarantees DB and disk always agree.
+
+### 8. Visual-equivalent character map for unsafe filesystem characters
+
+Instead of stripping unsafe characters (leaving gaps) or using generic replacements, maintain a map of unsafe ASCII characters to their Unicode visual-equivalent:
+
+| Unsafe char | Replacement | Unicode name |
+|-------------|-------------|-------------|
+| `/` U+002F | `⧸` U+29F8 | BIG SOLIDUS |
+| `\` U+005C | `⧹` U+29F9 | BIG REVERSE SOLIDUS |
+| `:` U+003A | `꞉` U+A789 | MODIFIER LETTER COLON |
+| `*` U+002A | `＊` U+FF0A | FULLWIDTH ASTERISK |
+| `?` U+003F | `？` U+FF1F | FULLWIDTH QUESTION MARK |
+| `"` U+0022 | `＂` U+FF02 | FULLWIDTH QUOTATION MARK |
+| `<` U+003C | `＜` U+FF1C | FULLWIDTH LESS-THAN SIGN |
+| `>` U+003E | `＞` U+FF1E | FULLWIDTH GREATER-THAN SIGN |
+| `|` U+007C | `｜` U+FF5C | FULLWIDTH VERTICAL LINE |
+
+This map is used in two places:
+- **Auto-rename OFF**: full passthrough — replace all unsafe chars with lookalikes, preserving title appearance.
+- **Auto-rename ON, tier 3, no separator found**: same replacement instead of the old `sanitize()` which left double spaces.
+
+This matches yt-dlp's own sanitisation, so when auto-rename is OFF the rename is often a no-op on disk (file already has these chars) — but the critical gain is that `renamed_to` in the DB now matches the actual filename.
+
+### 9. Separator-based artist–track split in tier 3 (auto-rename ON only)
+
+When auto-rename is ON and the title falls through to tier 3 (YT title fallback), attempt to split the title on a known separator (`//`, `⧸⧸`, `–`, `—`, `-`) to produce an `Artist - Track` formatted name. This restores the old title-separator behaviour that was previously a dedicated tier.
+
+- If a separator is found: split into artist/track, format as `Artist - Track`, apply noise stripping. This produces output consistent with tier 1/2 (e.g. `BEACH HOUSE // Space Song` → `BEACH HOUSE - Space Song`).
+- If no separator is found: apply the visual-equivalent character map (Decision 8) instead of the old `sanitize()`, then apply noise stripping.
+
+This only applies when auto-rename is ON. When OFF, separators are preserved as-is (with visual-equivalent replacement if the separator chars are unsafe).
+
 ## Risks / Trade-offs
 
 **[File not found on disk]** → If the file was moved or deleted outside Siphon, `os.rename()` will fail. The endpoint returns 404 with a descriptive error. The DB is not updated (rename is atomic: both succeed or neither does).

@@ -31,9 +31,16 @@ The `"manual"` tier is not produced by the automatic rename chain. It is set exc
 - **WHEN** `info_dict` lacks `artist` or `track`, AND the MusicBrainz result does not satisfy either BOTH_IN_TITLE or UPLOADER_MATCH validation
 - **THEN** the renamer SHALL discard the MusicBrainz result and fall through to tier 3
 
-#### Scenario: Tier 1 and tier 2 fail — tier 3 fallback
-- **WHEN** neither tier 1 nor tier 2 produces a result
-- **THEN** the renamer SHALL apply noise stripping to the sanitized YT video title and use the result as the filename, returning a `RenameResult` with `tier="yt_title_fallback"`
+#### Scenario: Tier 1 and tier 2 fail — tier 3 fallback with separator detection (auto-rename ON)
+- **WHEN** neither tier 1 nor tier 2 produces a result, AND auto-rename is ON
+- **AND** the title contains a known separator (`//`, `⧸⧸`, `–`, `—`, `-`)
+- **THEN** the renamer SHALL split the title on the first matching separator into artist and track parts, format the result as `"{artist} - {track}"`, apply noise stripping, rename the file, and return a `RenameResult` with `tier="yt_title_fallback"`
+
+#### Scenario: Tier 1 and tier 2 fail — tier 3 fallback without separator (auto-rename ON)
+- **WHEN** neither tier 1 nor tier 2 produces a result, AND auto-rename is ON
+- **AND** the title does NOT contain any known separator
+- **THEN** the renamer SHALL apply the visual-equivalent character map to replace filesystem-unsafe ASCII characters with their Unicode lookalikes, apply noise stripping to the result, and return a `RenameResult` with `tier="yt_title_fallback"`
+- **NOTE** the old `sanitize()` function (which stripped unsafe chars leaving gaps) SHALL NOT be used in this path
 
 #### Scenario: No filepath available
 - **WHEN** `info_dict` contains no `filepath` or `filename`
@@ -42,3 +49,45 @@ The `"manual"` tier is not produced by the automatic rename chain. It is set exc
 #### Scenario: Manual tier is not produced by auto-rename
 - **WHEN** the auto-rename chain runs during download
 - **THEN** the tier SHALL never be `"manual"` — that value is reserved for post-download user overrides
+
+### NEW Requirement: Passthrough rename when auto-rename is OFF
+
+When auto-rename is disabled, the renamer SHALL still run a lightweight rename pass to ensure the DB's `renamed_to` field matches the actual file on disk. This prevents mismatches caused by yt-dlp's own filename sanitisation (e.g. replacing `/` with `⧸`).
+
+`RenameResult` for passthrough:
+- `tier`: `"yt_title_passthrough"`
+- `final_name`: the YT title with filesystem-unsafe chars replaced by visual-equivalent Unicode lookalikes
+- No noise stripping, no MusicBrainz lookup, no metadata extraction
+
+#### Scenario: Auto-rename OFF — passthrough rename applied
+- **WHEN** auto-rename is OFF
+- **THEN** the renamer SHALL apply the visual-equivalent character map to the raw YT title, rename the file on disk to the result (preserving extension), and return a `RenameResult` with `tier="yt_title_passthrough"`
+- **NOTE** noise stripping SHALL NOT be applied. The title's original appearance is preserved, with only unsafe characters swapped for safe lookalikes.
+
+#### Scenario: Auto-rename OFF — separator characters preserved
+- **WHEN** auto-rename is OFF AND the title contains separator characters (e.g. `//`, `–`)
+- **THEN** the renamer SHALL NOT attempt to split the title into artist/track. Separators are replaced only if they contain unsafe characters (e.g. `/` → `⧸`), but the title structure is preserved as-is.
+
+### NEW Requirement: Visual-equivalent character map
+
+The renamer SHALL maintain a map of filesystem-unsafe ASCII characters to visually identical Unicode replacements:
+
+| Unsafe | Safe | Unicode name |
+|--------|------|-------------|
+| `/` | `⧸` | BIG SOLIDUS (U+29F8) |
+| `\` | `⧹` | BIG REVERSE SOLIDUS (U+29F9) |
+| `:` | `꞉` | MODIFIER LETTER COLON (U+A789) |
+| `*` | `＊` | FULLWIDTH ASTERISK (U+FF0A) |
+| `?` | `？` | FULLWIDTH QUESTION MARK (U+FF1F) |
+| `"` | `＂` | FULLWIDTH QUOTATION MARK (U+FF02) |
+| `<` | `＜` | FULLWIDTH LESS-THAN SIGN (U+FF1C) |
+| `>` | `＞` | FULLWIDTH GREATER-THAN SIGN (U+FF1E) |
+| `|` | `｜` | FULLWIDTH VERTICAL LINE (U+FF5C) |
+
+This map SHALL be used:
+1. In the passthrough tier (auto-rename OFF)
+2. In tier 3 when no separator is found (auto-rename ON)
+
+The map SHALL NOT be used:
+1. In tier 1 or tier 2 (those already produce clean names)
+2. In tier 3 when a separator IS found (the split-and-reformat logic handles that)

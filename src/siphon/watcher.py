@@ -639,7 +639,7 @@ def _download_worker(
     size_str = _fmt_size(candidate_path) if os.path.isfile(candidate_path) else "?"
 
     logger.info("  \u2713 %s  [%s \u00b7 %ds]", filename, size_str, int(elapsed))
-    if auto_rename and record.rename_tier is not None:
+    if record.rename_tier is not None and record.rename_tier != "yt_title":
         logger.info('    Renamed: "%s" \u2192 "%s"  [%s]', record.yt_title, record.renamed_to, record.rename_tier)
 
     return record, None
