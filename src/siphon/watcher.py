@@ -112,6 +112,7 @@ class DownloadJob:
     items: List[JobItem]
     created_at: float
     output_dir: Optional[str] = None
+    auto_rename: bool = False
     cancelled: bool = False
     original_total: int = field(default=0, init=False)
 
@@ -160,6 +161,7 @@ class JobStore:
         playlist_name: Optional[str],
         entries: List[dict],
         output_dir: Optional[str] = None,
+        auto_rename: bool = False,
     ) -> str:
         job_id = str(uuid.uuid4())
         items = [
@@ -173,6 +175,7 @@ class JobStore:
             items=items,
             created_at=time.time(),
             output_dir=output_dir,
+            auto_rename=auto_rename,
         )
         with self._lock:
             # Atomic guard: reject if an active (non-terminal) job already exists
@@ -1483,7 +1486,7 @@ def api_create_job(body: JobCreate):
         raise HTTPException(status_code=422, detail="Nothing new to download.")
 
     try:
-        job_id = _job_store.create_job(playlist_id, playlist_name, entries, output_dir=output_dir)
+        job_id = _job_store.create_job(playlist_id, playlist_name, entries, output_dir=output_dir, auto_rename=body.auto_rename)
     except ValueError as exc:
         if str(exc) == "active_job_exists":
             raise HTTPException(
@@ -1725,6 +1728,7 @@ def _job_to_dict(job: DownloadJob) -> dict:
         "playlist_id": job.playlist_id,
         "playlist_name": job.playlist_name,
         "created_at": job.created_at,
+        "auto_rename": job.auto_rename,
         "total": job.total,
         "original_total": job.original_total,
         "done": job.done_count,

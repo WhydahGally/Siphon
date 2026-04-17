@@ -6,7 +6,7 @@ After a file is fully downloaded and postprocessed, the renamer SHALL attempt to
 `RenameResult` fields:
 - `original_title` (str): the raw YT title from `info_dict['title']`
 - `final_name` (str): the resolved filename stem (no extension)
-- `tier` (str): one of `"yt_metadata"`, `"musicbrainz"`, `"yt_title_fallback"`, `"manual"`
+- `tier` (str): one of `"yt_metadata"`, `"musicbrainz"`, `"yt_title"`, `"manual"`
 - `new_path` (str): absolute path to the renamed file on disk
 
 The `"manual"` tier is not produced by the automatic rename chain. It is set exclusively by the manual rename API when a user overrides the resolved name after download.
@@ -34,12 +34,12 @@ The `"manual"` tier is not produced by the automatic rename chain. It is set exc
 #### Scenario: Tier 1 and tier 2 fail — tier 3 fallback with separator detection (auto-rename ON)
 - **WHEN** neither tier 1 nor tier 2 produces a result, AND auto-rename is ON
 - **AND** the title contains a known separator (`//`, `⧸⧸`, `–`, `—`, `-`)
-- **THEN** the renamer SHALL split the title on the first matching separator into artist and track parts, format the result as `"{artist} - {track}"`, apply noise stripping, rename the file, and return a `RenameResult` with `tier="yt_title_fallback"`
+- **THEN** the renamer SHALL split the title on the first matching separator into artist and track parts, format the result as `"{artist} - {track}"`, apply noise stripping, rename the file, and return a `RenameResult` with `tier="yt_title"`
 
 #### Scenario: Tier 1 and tier 2 fail — tier 3 fallback without separator (auto-rename ON)
 - **WHEN** neither tier 1 nor tier 2 produces a result, AND auto-rename is ON
 - **AND** the title does NOT contain any known separator
-- **THEN** the renamer SHALL apply the visual-equivalent character map to replace filesystem-unsafe ASCII characters with their Unicode lookalikes, apply noise stripping to the result, and return a `RenameResult` with `tier="yt_title_fallback"`
+- **THEN** the renamer SHALL apply the visual-equivalent character map to replace filesystem-unsafe ASCII characters with their Unicode lookalikes, apply noise stripping to the result, and return a `RenameResult` with `tier="yt_title"`
 - **NOTE** the old `sanitize()` function (which stripped unsafe chars leaving gaps) SHALL NOT be used in this path
 
 #### Scenario: No filepath available

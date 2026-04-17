@@ -5,6 +5,9 @@ Each `JobItem` within a `DownloadJob` SHALL have a `state` field that follows th
 
 `JobItem` SHALL also have mutable `renamed_to` and `rename_tier` fields. These fields are initially set during download (by the auto-renamer if active, otherwise NULL). After download completes (`done` state), `renamed_to` and `rename_tier` MAY be updated by the manual rename endpoint without changing the item's `state`.
 
+### Requirement: DownloadJob carries auto_rename flag
+Each `DownloadJob` SHALL have an `auto_rename` boolean field (default `False`) that records whether auto-rename was enabled when the job was created. This field SHALL be set during `JobStore.create_job()` and SHALL be included in the `GET /jobs` response via `_job_to_dict()`. The UI uses this flag to decide whether to show the arrow format and tier badge for completed items.
+
 #### Scenario: Successful item download
 - **WHEN** a download worker begins processing an item
 - **THEN** the item state SHALL transition to `downloading`

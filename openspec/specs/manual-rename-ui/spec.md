@@ -55,3 +55,24 @@ Each completed item in the Dashboard's download queue SHALL display a pencil ico
 #### Scenario: Renamed value persists across page refresh
 - **WHEN** the user renames a single-video item and then refreshes the page
 - **THEN** the `GET /jobs` response SHALL include the updated `renamed_to` value from the JobStore
+
+---
+
+### Requirement: Auto-rename-aware display logic
+The UI SHALL show the `yt_title → renamed_to` arrow format and tier badge only when the item was meaningfully renamed. Both `PlaylistItemsPanel` and `QueueItem` SHALL accept an `autoRename` boolean prop indicating whether auto-rename was enabled for the playlist/job.
+
+#### Scenario: Auto-rename ON — arrow and tier badge shown
+- **WHEN** `autoRename` is true and `renamed_to` is populated
+- **THEN** the UI SHALL display the arrow format (`yt_title → renamed_to`) with the tier badge
+
+#### Scenario: Auto-rename OFF — no arrow, plain title shown
+- **WHEN** `autoRename` is false and `rename_tier` is not `'manual'`
+- **THEN** the UI SHALL display only the plain `yt_title` without arrow or tier badge, even if `renamed_to` is populated (passthrough rename)
+
+#### Scenario: Manual rename — arrow shown regardless of auto-rename setting
+- **WHEN** `rename_tier` is `'manual'`, regardless of `autoRename` value
+- **THEN** the UI SHALL display the arrow format (`yt_title → renamed_to`) with the `manual` tier badge
+
+#### Scenario: Tier badge visibility
+- **WHEN** the arrow format is shown
+- **THEN** the tier badge SHALL appear if `autoRename` is true OR `rename_tier` is `'manual'`

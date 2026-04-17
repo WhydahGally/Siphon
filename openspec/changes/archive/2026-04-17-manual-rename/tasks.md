@@ -51,3 +51,12 @@
 - [x] 8.2 Call `embed_metadata` from `_RenamePostProcessor.run()` after rename completes — pass final filepath, original YT title, and resolved name
 - [x] 8.3 Add `update_title_metadata(filepath, new_title)` to `renamer.py` — update only the TITLE field (ID3 `TIT2` / Vorbis `TITLE`) for MP3 and Opus
 - [x] 8.4 Call `update_title_metadata` from both rename endpoints in `watcher.py` after `os.rename` to keep metadata TITLE in sync with filename
+
+## 9. UI display logic — auto_rename-aware arrow and tier badge
+
+- [x] 9.1 Add `auto_rename: bool = False` field to `DownloadJob` dataclass, pass through `create_job()`, include in `_job_to_dict()` response
+- [x] 9.2 Add `autoRename` prop to `PlaylistItemsPanel` and `QueueItem` components
+- [x] 9.3 Pass `autoRename` from `PlaylistRow` → `PlaylistItemsPanel` (from playlist record) and from `DownloadQueue` → `QueueItem` (from `job.auto_rename`)
+- [x] 9.4 Update display logic in both components — show arrow format only when `autoRename || rename_tier === 'manual'`; show tier badge under the same condition
+- [x] 9.5 Remove `yt_title_fallback` → `yt_title` display ternary — show raw `rename_tier` value directly
+- [x] 9.6 Add "Manual renaming" feature bullet to `README.md`

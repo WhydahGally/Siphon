@@ -259,6 +259,7 @@ onMounted(() => {
       :items="items"
       :loading="itemsLoading"
       :playlist-id="playlist.id"
+      :auto-rename="autoRename"
     />
   </div>
 </template>

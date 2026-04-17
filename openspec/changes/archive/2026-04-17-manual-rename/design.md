@@ -1,6 +1,6 @@
 ## Context
 
-Siphon's auto-renamer runs a three-tier chain (yt_metadata → musicbrainz → yt_title_fallback) at download time. The result is written to the `items` table (`renamed_to`, `rename_tier`) and the file on disk is renamed accordingly. After that point, both the DB record and the filename are immutable through Siphon's interfaces.
+Siphon's auto-renamer runs a three-tier chain (yt_metadata → musicbrainz → yt_title) at download time. The result is written to the `items` table (`renamed_to`, `rename_tier`) and the file on disk is renamed accordingly. After that point, both the DB record and the filename are immutable through Siphon's interfaces.
 
 The manual rename feature adds a post-download mutation path: users can override the resolved name via CLI or web UI. The rename updates the DB, renames the file on disk, and sets `rename_tier='manual'`. For single-video downloads (not tracked in DB), the rename updates the in-memory JobStore and the file on disk.
 
@@ -108,6 +108,16 @@ When auto-rename is ON and the title falls through to tier 3 (YT title fallback)
 - If no separator is found: apply the visual-equivalent character map (Decision 8) instead of the old `sanitize()`, then apply noise stripping.
 
 This only applies when auto-rename is ON. When OFF, separators are preserved as-is (with visual-equivalent replacement if the separator chars are unsafe).
+
+### 10. UI display logic — auto_rename-aware arrow and tier badge
+
+The UI previously showed the `yt_title → renamed_to` arrow format whenever `renamed_to` was truthy. With the always-rename approach (Decision 7), `renamed_to` is now always populated, causing the arrow to appear even for passthrough-renamed items where no meaningful rename occurred.
+
+**Decision**: Thread the playlist's `auto_rename` flag through to the UI display components via props. Show the arrow format only when `autoRename` is true (actual rename happened) OR `rename_tier === 'manual'` (user explicitly renamed). Show the tier badge under the same condition.
+
+For the Dashboard (QueueItem), `auto_rename` is stored on the `DownloadJob` dataclass and included in the `GET /jobs` response. For the Library (PlaylistItemsPanel), `auto_rename` comes from the playlist record already available in the parent `PlaylistRow` component.
+
+This avoids checking against specific tier name strings (which would be fragile if tiers are renamed) and instead uses the semantic question "was auto-rename enabled for this download?"
 
 ## Risks / Trade-offs
 

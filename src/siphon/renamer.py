@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class RenameResult:
     original_title: str
     final_name: str        # filename stem, no extension
-    tier: str              # "yt_metadata" | "musicbrainz" | "yt_title_fallback"
+    tier: str              # "yt_metadata" | "musicbrainz" | "yt_title"
     new_path: str          # absolute path to renamed file on disk
 
 # ---------------------------------------------------------------------------
@@ -141,7 +141,7 @@ def rename_file(
         final_name = "unknown"
     new_path = _do_rename(filepath, final_name)
     logger.debug("renamer: tier 3 fallback to YT title")
-    return RenameResult(original_title=yt_title, final_name=final_name, tier="yt_title_fallback", new_path=new_path)
+    return RenameResult(original_title=yt_title, final_name=final_name, tier="yt_title", new_path=new_path)
 
 
 def passthrough_rename(info_dict: dict) -> Optional["RenameResult"]:

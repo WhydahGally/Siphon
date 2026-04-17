@@ -13,7 +13,8 @@ Siphon is primarily developed using spec-driven development through [OpenSpec](h
 - **Parallel downloads** — Configurable concurrent downloads (1–10 workers).
 - **Playlist watching** — Monitors YouTube playlists and auto-downloads newly added videos.
 - **Scheduled syncing** — Configurable per-playlist sync intervals (hourly, daily, whatever you want).
-- **Smart renaming** — Cleans up filenames using YT metadata and MusicBrainz lookups.
+- **Smart auto-renaming** — Cleans up filenames and titles using YT metadata and MusicBrainz lookups.
+- **Manual renaming** — Manually rename individual downloaded items from the Web UI or CLI. Changes are applied on disk and in metadata.
 - **Audio metadata embedding** — Embeds artist, title, album and cover art into audio files.
 - **Web UI** — Manage playlists, view download history, configure settings and monitor progress from your browser.
 - **CLI** — Full command-line interface for automation, scripting and debugging.
