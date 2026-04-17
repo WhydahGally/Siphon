@@ -179,7 +179,7 @@ async function handleDownload() {
         <span
           v-if="autoRename && mbUserAgentMissing"
           class="warn-icon"
-          title="MusicBrainz lookups require mb-user-agent to be configured in settings."
+          title="Configure mb-user-agent in settings."
         >⚠</span>
       </label>
 

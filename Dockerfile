@@ -20,11 +20,11 @@ COPY --from=mwader/static-ffmpeg:latest /ffprobe /usr/local/bin/ffprobe
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --require-hashes -r requirements.txt
 
 COPY pyproject.toml .
 COPY src/ src/
-RUN pip install --no-cache-dir -e .
+RUN pip install --no-cache-dir --no-deps -e .
 
 # Copy built UI into the location FastAPI serves from
 COPY --from=ui-build /build/dist /app/src/ui/dist
