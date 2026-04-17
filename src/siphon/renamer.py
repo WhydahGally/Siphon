@@ -445,33 +445,69 @@ def resolve_file_path(directory: str, stem: str) -> Optional[str]:
 # Metadata embedding
 # ---------------------------------------------------------------------------
 
-def embed_original_title(filepath: str, original_title: str) -> None:
-    """Write the original YT title into the file's audio metadata.
+def embed_metadata(filepath: str, original_title: str, final_name: str) -> None:
+    """Write the original YT title and resolved name into the file's audio metadata.
 
-    MP3:  ID3 TXXX frame with description ``original_title``.
-    Opus: Vorbis comment ``ORIGINAL_TITLE``.
+    MP3:  ID3 ``TXXX:original_title`` for the raw YT title, ``TIT2`` for the resolved name.
+    Opus: Vorbis ``ORIGINAL_TITLE`` for the raw YT title, ``TITLE`` for the resolved name.
     Other formats are silently skipped.
     """
-    if not original_title:
+    if not original_title and not final_name:
         return
 
     ext = os.path.splitext(filepath)[1].lower()
     try:
         if ext == ".mp3":
-            from mutagen.id3 import ID3, TXXX, ID3NoHeaderError
+            from mutagen.id3 import ID3, TIT2, TXXX, ID3NoHeaderError
             try:
                 tags = ID3(filepath)
             except ID3NoHeaderError:
                 tags = ID3()
-            tags.add(TXXX(encoding=3, desc="original_title", text=[original_title]))
+            if original_title:
+                tags.add(TXXX(encoding=3, desc="original_title", text=[original_title]))
+            if final_name:
+                tags.add(TIT2(encoding=3, text=[final_name]))
             tags.save(filepath)
         elif ext == ".opus":
             from mutagen.oggopus import OggOpus
             audio = OggOpus(filepath)
-            audio["ORIGINAL_TITLE"] = [original_title]
+            if original_title:
+                audio["ORIGINAL_TITLE"] = [original_title]
+            if final_name:
+                audio["TITLE"] = [final_name]
             audio.save()
         else:
             return
-        logger.debug("Embedded original_title metadata in %s", os.path.basename(filepath))
+        logger.debug("Embedded metadata in %s", os.path.basename(filepath))
     except Exception as exc:
-        logger.warning("Failed to embed original_title in %s: %s", filepath, exc)
+        logger.warning("Failed to embed metadata in %s: %s", filepath, exc)
+
+
+def update_title_metadata(filepath: str, new_title: str) -> None:
+    """Update only the TITLE metadata field in an audio file.
+
+    Used after manual renames to keep metadata in sync with the filename.
+    """
+    if not new_title:
+        return
+
+    ext = os.path.splitext(filepath)[1].lower()
+    try:
+        if ext == ".mp3":
+            from mutagen.id3 import ID3, TIT2, ID3NoHeaderError
+            try:
+                tags = ID3(filepath)
+            except ID3NoHeaderError:
+                tags = ID3()
+            tags.add(TIT2(encoding=3, text=[new_title]))
+            tags.save(filepath)
+        elif ext == ".opus":
+            from mutagen.oggopus import OggOpus
+            audio = OggOpus(filepath)
+            audio["TITLE"] = [new_title]
+            audio.save()
+        else:
+            return
+        logger.debug("Updated TITLE metadata in %s", os.path.basename(filepath))
+    except Exception as exc:
+        logger.warning("Failed to update TITLE in %s: %s", filepath, exc)

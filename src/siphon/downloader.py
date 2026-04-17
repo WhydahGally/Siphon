@@ -229,7 +229,7 @@ class _RenamePostProcessor(PostProcessor):
             logger.warning("renamer: rename raised an error for %s: %s", filepath, exc)
 
         if result:
-            renamer.embed_original_title(result.new_path, result.original_title)
+            renamer.embed_metadata(result.new_path, result.original_title, result.final_name)
 
         if self._on_item_complete is not None:
             try:

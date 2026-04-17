@@ -59,7 +59,7 @@ from yt_dlp import YoutubeDL
 from siphon import registry
 from siphon.downloader import download, ItemRecord
 from siphon.formats import DownloadOptions, VALID_AUDIO_FORMATS, VALID_VIDEO_FORMATS, VALID_RESOLUTIONS, check_ffmpeg
-from siphon.renamer import sanitize as sanitize_name, _DEFAULT_NOISE_PATTERNS, resolve_file_path, extract_extension
+from siphon.renamer import sanitize as sanitize_name, _DEFAULT_NOISE_PATTERNS, resolve_file_path, extract_extension, update_title_metadata
 
 logger = logging.getLogger(__name__)
 
@@ -1304,6 +1304,7 @@ def api_rename_playlist_item(playlist_id: str, video_id: str, body: RenameReques
         raise HTTPException(status_code=409, detail=f"A file named '{new_name}{ext}' already exists.")
 
     os.rename(old_path, new_path)
+    update_title_metadata(new_path, new_name)
     registry.update_item_rename(video_id, playlist_id, new_name)
 
     updated = registry.get_item(video_id, playlist_id)
@@ -1631,6 +1632,7 @@ def api_rename_job_item(job_id: str, video_id: str, body: RenameRequest):
         raise HTTPException(status_code=409, detail=f"A file named '{new_name}{ext}' already exists.")
 
     os.rename(old_path, new_path)
+    update_title_metadata(new_path, new_name)
     item.renamed_to = new_name
     item.rename_tier = "manual"
 
