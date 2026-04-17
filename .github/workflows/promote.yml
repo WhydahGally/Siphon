@@ -1,0 +1,57 @@
+name: "Develop -> Main"
+
+on:
+  workflow_dispatch:
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build PR body
+        id: body
+        run: |
+          base=$(git merge-base origin/main origin/develop)
+          log=$(git log --oneline --merges "$base..origin/develop" \
+            | grep -oP '#\d+' \
+            | sort -u \
+            | while read pr; do
+                num="${pr#\#}"
+                title=$(gh pr view "$num" --json title --jq '.title' 2>/dev/null || echo "")
+                if [ -n "$title" ]; then
+                  echo "- ${pr} ${title}"
+                fi
+              done)
+
+          if [ -z "$log" ]; then
+            log="No merged PRs found since last promotion."
+          fi
+
+          {
+            echo "body<<EOF"
+            echo "## Changes"
+            echo ""
+            echo "$log"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create PR
+        run: |
+          timestamp=$(date -u '+%Y-%m-%d %H:%M UTC')
+          gh pr create \
+            --base main \
+            --head develop \
+            --title "Develop -> Main ${timestamp}" \
+            --body "${{ steps.body.outputs.body }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

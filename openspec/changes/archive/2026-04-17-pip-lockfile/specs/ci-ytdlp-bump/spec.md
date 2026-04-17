@@ -1,11 +1,4 @@
-## ADDED Requirements
-
-### Requirement: Manual trigger only
-The workflow SHALL be triggered only via `workflow_dispatch` (manual). No scheduled triggers.
-
-#### Scenario: Manual dispatch
-- **WHEN** the maintainer triggers the workflow manually from GitHub Actions
-- **THEN** the workflow runs and checks for a newer yt-dlp version
+## MODIFIED Requirements
 
 ### Requirement: Check latest yt-dlp version from PyPI
 The workflow SHALL query the PyPI JSON API for the latest yt-dlp release version and compare it with the version pinned in `requirements.in`.
