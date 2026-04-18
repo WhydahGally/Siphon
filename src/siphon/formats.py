@@ -1,5 +1,5 @@
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 
 # Supported video resolutions. "best" means no height constraint.
@@ -101,3 +101,10 @@ def build_audio_postprocessors(audio_format: str) -> list:
         ]
     # Unreachable if DownloadOptions validation is used, but guard anyway.
     raise ValueError(f"Unsupported audio format: {audio_format}")
+
+
+def build_options(fmt: str, quality: str = "best") -> DownloadOptions:
+    """Build a DownloadOptions from a format string and quality."""
+    if fmt in VALID_AUDIO_FORMATS:
+        return DownloadOptions(mode="audio", audio_format=fmt)
+    return DownloadOptions(mode="video", quality=quality, video_format=fmt)

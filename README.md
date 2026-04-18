@@ -100,7 +100,7 @@ source .venv/bin/activate
 pip install -e .
 
 # Start the daemon
-siphon watch
+siphon start
 
 # In another terminal, run CLI commands
 siphon list
@@ -119,7 +119,7 @@ npm run dev
 |                      Command                      |                                                        Description                                                        |
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `siphon --help`                                   | Show all available commands.                                                                                              |
-| `siphon watch`                                    | Start the Siphon daemon (required for all other commands).                                                                |
+| `siphon start`                                   | Start the Siphon daemon (required for all other commands).                                                                |
 | `siphon add <url>`                                | Register a playlist (`--download`, `--no-watch`, `--interval`, `--format`, `--quality`, `--output-dir`, `--auto-rename`). |
 | `siphon list`                                     | Show all registered playlists.                                                                                            |
 | `siphon sync [<name>]`                            | Download new items for a specific playlist or all playlists.                                                              |

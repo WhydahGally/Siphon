@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-siphon = "siphon.watcher:main"
+siphon = "siphon.app:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
