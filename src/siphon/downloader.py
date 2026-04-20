@@ -674,7 +674,6 @@ def sync_parallel(
     max_workers: int,
     auto_rename: bool = False,
     noise_patterns: Optional[list] = None,
-    on_sync_start: Optional[Callable] = None,
     on_sync_info: Optional[Callable] = None,
     on_sync_done: Optional[Callable] = None,
 ) -> None:

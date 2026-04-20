@@ -42,25 +42,33 @@ Split into 6 new files + 2 existing file updates. No `helpers.py` — each utili
 
 **Why not a `helpers.py`?** Every utility has exactly one natural home. `_build_options` constructs a `DownloadOptions` — it belongs in `formats.py`. `_get_noise_patterns` reads from the registry — it belongs in `registry.py`. `_parse_bool` and `_print_table` are CLI-only. No orphans remain.
 
-### 2. Daemon state via `app.state`
+### 2. Daemon state — module-level globals in `api.py` *(as implemented)*
 
-Replace the 8 module-level globals with attributes on FastAPI's built-in `app.state`, set in the lifespan:
+The 8 mutable globals remain as module-level variables in `api.py`, initialised
+in the lifespan handler. This is the approach that was actually implemented:
 
 ```
-Before (watcher.py):              After (api.py):
-  _scheduler = None                 app.state.scheduler
-  _job_store = None                 app.state.job_store
-  _syncing_playlists = set()        app.state.syncing
-  _sync_info = {}                   app.state.sync_info
-  _sync_event_queues = []           app.state.sync_event_queues
-  _sync_loop = None                 app.state.sync_loop
-  _log_queues = []                  app.state.log_queues
-  _browser_logs_enabled = False     app.state.browser_logs_enabled
+Before (watcher.py — 2577 lines):  After (api.py — ~940 lines):
+  _scheduler = None                   _scheduler = None
+  _job_store = None                   _job_store = None
+  _syncing_playlists = set()          _syncing_playlists = set()
+  _sync_info = {}                     _sync_info = {}
+  _sync_event_queues = []             _sync_event_queues = []
+  _sync_loop = None                   _sync_loop = None
+  _log_queues = []                    _log_queues = []
+  _browser_logs_enabled = False       _browser_logs_enabled = False
 ```
 
-Routes access state via `app.state.X` since `app` is module-level in `api.py`. No wrapper class, no dependency injection framework.
+The original design proposed migrating to `app.state`, but that was abandoned
+during implementation: it would require threading `request` (or the `app`
+instance) through every route and helper, adding boilerplate to ~40 call sites
+with no functional gain. The isolation goal (state scoped to one 940-line module
+instead of a 2577-line monolith) is fully achieved either way.
 
-**Why not a separate `daemon_state.py` module?** `app.state` is idiomatic FastAPI and already exists. A separate module would be reinventing the same pattern with extra imports.
+**Why not `app.state`?** `app.state` requires passing `app` or `request` into
+every helper that touches state. Module-level `_` globals in `api.py` give the
+same isolation with zero per-route overhead. Both approaches are valid FastAPI
+patterns; this one is simpler for this codebase.
 
 ### 3. Entry point rename
 
@@ -87,19 +95,21 @@ The combined `downloader.py` will be ~500 lines. One module owns everything down
 
 `_broadcast_sync_event` and `_sync_parallel` currently reach for globals (`_sync_event_queues`, `_syncing_playlists`, `_sync_info`). After the split:
 
-- `_broadcast_sync_event` stays in `api.py` (it writes to `app.state.sync_event_queues`)
-- `_sync_parallel` moves to `downloader.py` but takes a **callbacks dict** for sync events instead of reaching for globals:
+- `_broadcast_sync_event` stays in `api.py` (it writes to `_sync_event_queues`)
+- `sync_parallel` moves to `downloader.py` and takes two explicit callbacks instead of reaching for globals:
 
 ```python
 # downloader.py
-def sync_parallel(..., on_sync_start=None, on_sync_end=None, on_new_item=None):
+def sync_parallel(..., on_sync_info=None, on_sync_done=None):
+    # on_sync_info(playlist_id, new_items_count) — called when item count is known
+    # on_sync_done(playlist_id)                  — called in finally, always
 
-# api.py — passes callbacks that update app.state
-def _make_sync_callbacks():
-    return {
-        "on_sync_start": lambda pid: ...,   # updates app.state.syncing
-        "on_sync_end": lambda pid: ...,     # broadcasts SSE
-    }
+# api.py — wires callbacks that update module-level state and broadcast SSE
+sync_parallel(
+    ...,
+    on_sync_info=_on_sync_info,   # updates _sync_info, broadcasts sync_info event
+    on_sync_done=_on_sync_done,   # clears _syncing_playlists, broadcasts sync_done
+)
 ```
 
 This keeps `downloader.py` free of FastAPI/asyncio dependencies.
