@@ -105,9 +105,8 @@ def main() -> None:
     sub = parser.add_subparsers(dest="command", metavar="<command>")
     sub.required = True
 
-    # -- start (also aliased as watch for backward compat) --
+    # -- start --
     sub.add_parser("start", help="Start the Siphon daemon (required for all other commands).")
-    sub.add_parser("watch", help="Start the Siphon daemon (alias for 'start').")
 
     # -- add --
     p_add = sub.add_parser("add", help="Register a YouTube playlist.")
@@ -174,7 +173,6 @@ def main() -> None:
 
     dispatch = {
         "start": cmd_start,
-        "watch": cmd_start,
         "add": cmd_add,
         "cancel": cmd_cancel,
         "sync": cmd_sync,
