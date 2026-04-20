@@ -107,7 +107,7 @@ async function handleDownload() {
     emit('job-created', data.job_id)
     url.value = ''
   } catch (e) {
-    showToast('Could not reach the daemon. Is siphon watch running?')
+    showToast('Could not reach the daemon. Is siphon running?')
   } finally {
     loading.value = false
   }

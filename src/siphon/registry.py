@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import sqlite3
@@ -5,7 +6,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Optional
 
-from siphon.downloader import ItemRecord
+from siphon.models import ItemRecord
 
 logger = logging.getLogger(__name__)
 
@@ -551,3 +552,14 @@ def is_ignored(video_id: str, playlist_id: str) -> bool:
         (video_id, playlist_id),
     ).fetchone()
     return row is not None
+
+
+def get_noise_patterns() -> Optional[list]:
+    """Load title-noise-patterns from settings DB. Returns None when unset."""
+    raw = get_setting("title_noise_patterns")
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except Exception:
+        return None

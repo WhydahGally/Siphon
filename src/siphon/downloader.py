@@ -1,7 +1,8 @@
 import logging
 import os
-from dataclasses import dataclass
-from typing import Callable, Optional
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import Any, Callable, List, Optional, Tuple
 
 from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor import PostProcessor
@@ -9,29 +10,16 @@ from yt_dlp.postprocessor import PostProcessor
 from siphon.formats import (
     DownloadOptions,
     build_audio_postprocessors,
+    build_options,
     build_video_format_selector,
     check_ffmpeg,
 )
+from siphon.models import FailureRecord, ItemRecord
 from siphon.progress import make_progress_event
+from siphon import registry
 from siphon import renamer
 
 logger = logging.getLogger(__name__)
-
-
-# ---------------------------------------------------------------------------
-# Public result type
-# ---------------------------------------------------------------------------
-
-@dataclass
-class ItemRecord:
-    video_id: str
-    playlist_id: Optional[str]
-    yt_title: str
-    renamed_to: Optional[str]       # final filename stem, no extension
-    rename_tier: Optional[str]      # tier from RenameResult
-    uploader: Optional[str]
-    channel_url: Optional[str]
-    duration_secs: Optional[int]
 
 
 def download(
@@ -315,6 +303,460 @@ class _YtdlpLogger:
 
     def error(self, msg: str) -> None:
         logger.error("[yt-dlp] %s", msg)
+
+
+# ---------------------------------------------------------------------------
+# Playlist enumeration & filtering
+# ---------------------------------------------------------------------------
+
+def enumerate_entries(url: str) -> List[dict]:
+    """
+    Enumerate all entries in a playlist using extract_flat (no download).
+    Returns a list of entry dicts, each with at least 'id', 'url', 'title'.
+    """
+    ydl_opts = {
+        "quiet": True,
+        "extract_flat": True,
+        "skip_download": True,
+    }
+    with YoutubeDL(ydl_opts) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    if not info:
+        logger.warning("enumerate_entries: no info returned for url=%s", url)
+        return []
+
+    entries = info.get("entries") or []
+    result = []
+    for e in entries:
+        if not e:
+            continue
+        video_id = e.get("id")
+        video_url = e.get("url") or e.get("webpage_url")
+        if video_id and video_url:
+            result.append({
+                "id": video_id,
+                "url": video_url,
+                "title": e.get("title") or video_id,
+            })
+    logger.debug("enumerate_entries: found %d entries for url=%s", len(result), url)
+    return result
+
+
+def filter_entries(
+    entries: List[dict],
+    playlist_id: str,
+) -> List[dict]:
+    """
+    Filter entries for dispatch:
+    - Skip if already in items table
+    - Skip if in ignored_items
+    - Skip (with WARNING) if in failed_downloads with attempt_count >= 3
+    Returns the list of entries to download.
+    """
+    downloaded = registry.get_downloaded_ids(playlist_id)
+    to_dispatch = []
+    for entry in entries:
+        vid = entry["id"]
+        if vid in downloaded:
+            continue
+        if registry.is_ignored(vid, playlist_id):
+            continue
+        attempt_count = registry.get_failed_attempt_count(vid, playlist_id)
+        if attempt_count >= 3:
+            logger.warning(
+                "Skipping '%s' (id=%s): failed %d times — use 'siphon sync-failed' to retry manually.",
+                entry["title"], vid, attempt_count,
+            )
+            continue
+        to_dispatch.append(entry)
+    return to_dispatch
+
+
+def _fmt_size(path: str) -> str:
+    """Return a human-readable file size string, or '?' if the file cannot be read."""
+    try:
+        n = os.path.getsize(path)
+    except OSError:
+        return "?"
+    if n < 1024 ** 2:
+        return f"{n / 1024:.1f} KB"
+    if n < 1024 ** 3:
+        return f"{n / 1024 ** 2:.1f} MB"
+    return f"{n / 1024 ** 3:.2f} GB"
+
+
+# ---------------------------------------------------------------------------
+# Single-item download worker
+# ---------------------------------------------------------------------------
+
+def download_worker(
+    entry: dict,
+    playlist_id: Optional[str],
+    playlist_name: Optional[str],
+    options: DownloadOptions,
+    output_dir: str,
+    mb_user_agent: Optional[str],
+    auto_rename: bool = False,
+    noise_patterns: Optional[list] = None,
+    on_progress: Optional[Any] = None,
+) -> Tuple[Optional[ItemRecord], Optional[FailureRecord]]:
+    """
+    Worker function: download a single video entry.
+
+    On success: writes item to DB (if playlist_id set), clears any prior failure
+    record, logs result.
+    On failure: writes failure to DB (if playlist_id set), logs error.
+
+    Returns (ItemRecord, None) on success or (None, FailureRecord) on failure.
+    """
+    video_id = entry["id"]
+    title = entry["title"]
+    video_url = entry["url"]
+    logger.debug("Syncing item: %s (%s)", video_id, title)
+
+    # Single-video jobs (playlist_id=None) go directly into output_dir.
+    # Playlist items go into a per-playlist subfolder: <output_dir>/<playlist_name>/
+    if playlist_id is None:
+        item_output_dir = output_dir
+    else:
+        folder_key = playlist_name or playlist_id or video_id
+        safe_folder = renamer.sanitize(folder_key) or video_id
+        item_output_dir = os.path.join(output_dir, safe_folder)
+    os.makedirs(item_output_dir, exist_ok=True)
+
+    item_result: list = []  # mutable container for on_item_complete callback
+
+    def on_item(record: ItemRecord) -> None:
+        item_result.append(record)
+
+    # Track whether yt-dlp actually finished downloading a file.
+    # yt-dlp uses ignoreerrors=True, so unavailable/private/deleted videos are
+    # silently skipped — no exception is raised, but no progress hook fires either.
+    _file_downloaded: list = []
+
+    def _track_progress(event: dict) -> None:
+        if event.get("status") == "finished":
+            _file_downloaded.append(True)
+        elif event.get("status") == "downloading" and on_progress is not None:
+            on_progress(event)
+
+    start = time.monotonic()
+
+    try:
+        download(
+            url=video_url,
+            output_dir=item_output_dir,
+            options=options,
+            progress_callback=_track_progress,
+            mb_user_agent=mb_user_agent,
+            auto_rename=auto_rename,
+            on_item_complete=on_item,
+            noise_patterns=noise_patterns,
+        )
+    except Exception as exc:
+        err = str(exc)
+        if playlist_id is not None:
+            registry.insert_failed(video_id, playlist_id, title, video_url, err)
+        logger.warning("  \u2717 %s \u2014 %s", title, err)
+        return None, FailureRecord(video_id=video_id, title=title, url=video_url, error_message=err)
+
+    # If no file was downloaded, yt-dlp silently skipped this entry (unavailable,
+    # private, deleted, or region-blocked).  Treat it as a failure so the UI
+    # shows a red row and Retry button instead of a false green check mark.
+    if not _file_downloaded:
+        err = "Video unavailable, private, or deleted"
+        if playlist_id is not None:
+            registry.insert_failed(video_id, playlist_id, title, video_url, err)
+        logger.warning("  \u2717 %s \u2014 %s", title, err)
+        return None, FailureRecord(video_id=video_id, title=title, url=video_url, error_message=err)
+
+    elapsed = time.monotonic() - start
+    record = item_result[0] if item_result else ItemRecord(
+        video_id=video_id,
+        playlist_id=playlist_id,
+        yt_title=title,
+        renamed_to=None,
+        rename_tier=None,
+        uploader=None,
+        channel_url=None,
+        duration_secs=None,
+    )
+    if playlist_id is not None:
+        registry.insert_item(record, playlist_id)
+        registry.clear_failed(video_id, playlist_id)  # no-op if no prior failure
+
+    filename = record.renamed_to or title
+
+    # Determine file size from disk.
+    ext = f".{options.audio_format}" if options.mode == "audio" else f".{options.video_format}"
+    candidate_path = os.path.join(item_output_dir, f"{filename}{ext}")
+    size_str = _fmt_size(candidate_path) if os.path.isfile(candidate_path) else "?"
+
+    logger.info("  \u2713 %s  [%s \u00b7 %ds]", filename, size_str, int(elapsed))
+    if record.rename_tier is not None and record.rename_tier != "yt_title":
+        logger.info('    Renamed: "%s" \u2192 "%s"  [%s]', record.yt_title, record.renamed_to, record.rename_tier)
+
+    return record, None
+
+
+# ---------------------------------------------------------------------------
+# Parallel download orchestration
+# ---------------------------------------------------------------------------
+
+def download_parallel(
+    entries: List[dict],
+    playlist_id: str,
+    playlist_name: str,
+    options: DownloadOptions,
+    output_dir: str,
+    mb_user_agent: Optional[str],
+    max_workers: int,
+    auto_rename: bool = False,
+    noise_patterns: Optional[list] = None,
+) -> Tuple[List[ItemRecord], List[FailureRecord]]:
+    """
+    Download entries concurrently using a thread pool.
+
+    Returns (successes, failures).
+    """
+    if not entries:
+        return [], []
+
+    # Guard ffmpeg before dispatching threads.
+    ffmpeg_needed = (
+        (options.mode == "audio" and options.audio_format == "mp3")
+        or (options.mode == "video" and options.video_format in {"mp4", "mkv"})
+    )
+    if ffmpeg_needed and not check_ffmpeg():
+        raise RuntimeError(
+            "ffmpeg was not found on PATH. "
+            "Install it with: brew install ffmpeg  (macOS) or  apt install ffmpeg  (Linux)."
+        )
+
+    successes: List[ItemRecord] = []
+    failures: List[FailureRecord] = []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {}
+        for i, entry in enumerate(entries):
+            fut = executor.submit(
+                download_worker,
+                entry, playlist_id, playlist_name, options, output_dir,
+                mb_user_agent, auto_rename, noise_patterns,
+            )
+            futures[fut] = entry
+
+        for fut in as_completed(futures):
+            try:
+                record, failure = fut.result()
+            except Exception as exc:
+                # Unexpected error not caught in download_worker
+                entry = futures[fut]
+                failure = FailureRecord(
+                    video_id=entry["id"],
+                    title=entry["title"],
+                    url=entry["url"],
+                    error_message=str(exc),
+                )
+                registry.insert_failed(failure.video_id, playlist_id, failure.title, failure.url, failure.error_message)
+                record = None
+
+            if record is not None:
+                successes.append(record)
+            if failure is not None:
+                failures.append(failure)
+
+    return successes, failures
+
+
+def run_download_job(
+    job_id: str,
+    entries: List[dict],
+    playlist_id: Optional[str],
+    playlist_name: Optional[str],
+    options: DownloadOptions,
+    output_dir: str,
+    mb_user_agent: Optional[str],
+    max_workers: int,
+    job_store,
+    auto_rename: bool = False,
+    noise_patterns: Optional[list] = None,
+) -> None:
+    """
+    Background thread: drives per-item state transitions and downloads.
+
+    Wraps download_worker to update job state (pending→downloading→done/failed)
+    in the JobStore, which fans out SSE events to browser subscribers.
+    """
+    if not entries:
+        if job_store is not None:
+            job_store.notify_terminal(job_id)
+        return
+
+    # Guard ffmpeg before dispatching threads.
+    ffmpeg_needed = (
+        (options.mode == "audio" and options.audio_format == "mp3")
+        or (options.mode == "video" and options.video_format in {"mp4", "mkv"})
+    )
+    if ffmpeg_needed and not check_ffmpeg():
+        for entry in entries:
+            if job_store is not None:
+                job_store.update_item_state(
+                    job_id, entry["id"], "failed",
+                    error="ffmpeg not found on PATH — install it to enable this format.",
+                )
+        if job_store is not None:
+            job_store.notify_terminal(job_id)
+        return
+
+    def run_item(entry: dict) -> Tuple[Optional[ItemRecord], Optional[FailureRecord]]:
+        # Check cancel flag before starting; skip without downloading if cancelled.
+        if job_store is not None:
+            job = job_store.get_job(job_id)
+            if job is not None and job.cancelled:
+                return None, None
+            job_store.update_item_state(job_id, entry["id"], "downloading")
+        def _on_progress(event: dict) -> None:
+            if job_store is not None:
+                job_store.publish_progress(job_id, {"speed": event.get("speed")})
+
+        record, failure = download_worker(
+            entry=entry,
+            playlist_id=playlist_id,
+            playlist_name=playlist_name,
+            options=options,
+            output_dir=output_dir,
+            mb_user_agent=mb_user_agent,
+            auto_rename=auto_rename,
+            noise_patterns=noise_patterns,
+            on_progress=_on_progress,
+        )
+        if failure is not None:
+            if job_store is not None:
+                job_store.update_item_state(
+                    job_id, entry["id"], "failed", error=failure.error_message,
+                )
+        else:
+            renamed_to = record.renamed_to if record else None
+            rename_tier = record.rename_tier if record else None
+            if job_store is not None:
+                job_store.update_item_state(
+                    job_id, entry["id"], "done", renamed_to=renamed_to, rename_tier=rename_tier,
+                )
+        return record, failure
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(run_item, entry): entry for entry in entries}
+        for fut in as_completed(futures):
+            try:
+                fut.result()
+            except Exception as exc:
+                entry = futures[fut]
+                if job_store is not None:
+                    job_store.update_item_state(job_id, entry["id"], "failed", error=str(exc))
+
+    if playlist_id is not None:
+        registry.update_last_synced(playlist_id)
+
+    if job_store is not None:
+        job_store.notify_terminal(job_id)
+
+
+def sync_parallel(
+    playlist_id: str,
+    playlist_name: str,
+    url: str,
+    fmt: str,
+    quality: str,
+    output_dir: str,
+    mb_user_agent: Optional[str],
+    max_workers: int,
+    auto_rename: bool = False,
+    noise_patterns: Optional[list] = None,
+    on_sync_info: Optional[Callable] = None,
+    on_sync_done: Optional[Callable] = None,
+) -> None:
+    try:
+        options = build_options(fmt, quality)
+
+        logger.info("Enumerating '%s'…", playlist_name)
+        entries = enumerate_entries(url)
+        if not entries:
+            logger.warning("No entries found for playlist '%s' (url=%s)", playlist_name, url)
+            registry.update_last_synced(playlist_id)
+            if on_sync_info:
+                on_sync_info(playlist_id, 0)
+            return
+
+        to_download = filter_entries(entries, playlist_id)
+        if not to_download:
+            registry.update_last_synced(playlist_id)
+            total = registry.count_items(playlist_id)
+            logger.info("'%s': Already up to date. (%d total)", playlist_name, total)
+            if on_sync_info:
+                on_sync_info(playlist_id, 0)
+            return
+
+        if on_sync_info:
+            on_sync_info(playlist_id, len(to_download))
+        logger.info("%d new item(s) to download:", len(to_download))
+        for idx, entry in enumerate(to_download, 1):
+            logger.info("  %d. %s", idx, entry["title"])
+
+        successes, failures = download_parallel(
+            entries=to_download,
+            playlist_id=playlist_id,
+            playlist_name=playlist_name,
+            options=options,
+            output_dir=output_dir,
+            mb_user_agent=mb_user_agent,
+            max_workers=max_workers,
+            auto_rename=auto_rename,
+            noise_patterns=noise_patterns,
+        )
+
+        registry.update_last_synced(playlist_id)
+        total = registry.count_items(playlist_id)
+        logger.info("'%s': %d new item(s) added. (%d total)", playlist_name, len(successes), total)
+
+        if failures:
+            logger.info("Failures (%d):", len(failures))
+            for f in failures:
+                logger.info("  \u2717 %s", f.title)
+                logger.info("    %s", f.error_message)
+    finally:
+        if on_sync_done:
+            on_sync_done(playlist_id)
+
+
+def run_sync_failed_for_playlist(
+    row,
+    max_workers: int,
+    default_output_dir: str,
+) -> None:
+    """Run sync-failed logic for a single playlist row (called in a thread)."""
+    pid = row["id"]
+    pname = row["name"]
+    failures = registry.get_failed(pid)
+    if not failures:
+        logger.info("No failures recorded for '%s'.", pname)
+        return
+    entries = [{"id": f["video_id"], "url": f["url"], "title": f["yt_title"]} for f in failures]
+    options = build_options(row["format"], row["quality"] or "best")
+    output_dir = row["output_dir"] or os.path.abspath(default_output_dir)
+    successes, new_failures = download_parallel(
+        entries=entries,
+        playlist_id=pid,
+        playlist_name=pname,
+        options=options,
+        output_dir=output_dir,
+        mb_user_agent=registry.get_setting("mb_user_agent"),
+        max_workers=max_workers,
+        auto_rename=bool(row["auto_rename"]),
+        noise_patterns=registry.get_noise_patterns(),
+    )
+    logger.info("'%s': %d recovered, %d still failing.", pname, len(successes), len(new_failures))
 
 
 

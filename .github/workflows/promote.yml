@@ -5,6 +5,7 @@ on:
 
 jobs:
   promote:
+    if: github.ref == 'refs/heads/develop'
     runs-on: ubuntu-latest
     permissions:
       contents: read
