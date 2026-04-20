@@ -84,3 +84,19 @@ class TestPostPlaylistValidation:
     def test_missing_url_returns_422(self, api_client):
         resp = api_client.post("/playlists", json={})
         assert resp.status_code == 422
+
+    def test_valid_body_returns_201(self, api_client):
+        from unittest.mock import patch
+        fake_info = {"id": "PLxyz", "title": "My Playlist"}
+        with (
+            patch("siphon.api._fetch_playlist_info", return_value=fake_info),
+            patch("siphon.api._normalise_youtube_url", side_effect=lambda u: u),
+        ):
+            resp = api_client.post(
+                "/playlists",
+                json={"url": "https://www.youtube.com/playlist?list=PLxyz"},
+            )
+        assert resp.status_code == 201
+        body = resp.json()
+        assert body["id"] == "PLxyz"
+        assert body["name"] == "My Playlist"

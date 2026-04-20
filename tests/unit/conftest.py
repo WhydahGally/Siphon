@@ -34,7 +34,7 @@ def db(tmp_path):
 # Renamer fixture — reset module-level rate-limit state per test
 # ---------------------------------------------------------------------------
 
-@pytest.fixture(autouse=False)
+@pytest.fixture(autouse=True)
 def reset_mb_ratelimit():
     """Reset MusicBrainz rate-limit timestamp before and after each test."""
     renamer._last_mb_request_time = 0.0

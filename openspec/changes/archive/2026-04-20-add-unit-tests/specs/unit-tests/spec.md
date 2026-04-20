@@ -18,9 +18,9 @@ The project SHALL have a pytest-based unit test suite under `tests/unit/` that c
 ### Requirement: Tests are isolated from each other and from real state
 The test suite SHALL use fixtures to ensure no shared state between tests.
 
-#### Scenario: Registry tests use in-memory SQLite
+#### Scenario: Registry tests use an isolated per-test SQLite file
 - **WHEN** any `test_registry.py` test runs
-- **THEN** it uses an in-memory SQLite database (`:memory:`) and not the real `.data/` directory
+- **THEN** it uses a pytest `tmp_path` temp directory (not the real `.data/` directory), with all thread-local and module-level registry state reset after each test
 
 #### Scenario: Renamer module-level state is reset between tests
 - **WHEN** a `test_renamer.py` test modifies `_last_mb_request_time`

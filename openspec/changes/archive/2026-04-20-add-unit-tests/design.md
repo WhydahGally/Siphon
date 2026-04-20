@@ -30,11 +30,11 @@ MusicBrainz calls in `renamer.py` use `requests.get`. Standard `unittest.mock.pa
 
 **Alternative considered:** `responses` library. Rejected — `unittest.mock.patch("requests.get")` is simpler for a single external call site.
 
-### D3: Registry isolation via `init_db(":memory:")`
+### D3: Registry isolation via `tmp_path` per test
 
-`registry.init_db()` accepts a data directory; tests pass a `tmp_path` fixture. Inside the test, we also patch `registry._local` to ensure each test gets a fresh connection. This avoids any shared state between test functions.
+`registry.init_db()` accepts a data directory; tests pass pytest's `tmp_path` fixture, giving each test a unique temp directory. The `db` fixture tears down by closing the thread-local connection and resetting `registry._data_dir` and `registry._local` — ensuring no shared state between test functions.
 
-**Alternative considered:** Use a real temp SQLite file. Rejected — `:memory:` is faster and guaranteed clean.
+**Alternative considered:** Use `sqlite3.connect(":memory:")` by patching `_open_conn`. Rejected — `tmp_path` is simpler to wire and pytest guarantees cleanup. The isolation guarantee is equivalent.
 
 ### D4: FastAPI `TestClient` (sync) for `test_api.py`
 
