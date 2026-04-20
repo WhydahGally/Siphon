@@ -684,3 +684,8 @@ yt-dlp==2026.3.17 \
     --hash=sha256:32992db94303a8a5d211a183f2174834fe7f8c29d83ed2e7a324eae97a8f26d8 \
     --hash=sha256:ba7aa31d533f1ffccfe70e421596d7ca8ff0bf1398dc6bb658b7d9dec057d2c9
     # via -r requirements.in
+anyio==4.13.0
+h11==0.16.0
+httpx==0.28.1
+pytest==9.0.3
+pytest-asyncio==1.3.0

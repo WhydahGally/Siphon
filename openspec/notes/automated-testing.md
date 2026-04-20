@@ -5,6 +5,7 @@
 - Zero tests, zero test infrastructure
 - No pytest in dependencies, no `tests/` directory
 - All verification done manually via `python -c` in terminal sessions
+- `watcher.py` has been split into `api.py`, `app.py`, `cli.py`, `downloader.py`, `scheduler.py`
 
 ## Phase 1: Unit Tests
 
@@ -13,58 +14,79 @@
 **Target:** runs on every PR against develop and on develop pushes.
 Speed target: <10 seconds total.
 
+`pytest-asyncio` is included in deps for potential async API client use in `test_api.py`.
+For `test_job_store.py`, only the synchronous operations (create/update/evict/cancel) are
+tested here — the SSE queue subscription path is covered implicitly via `test_api.py`'s
+SSE route tests through the sync `TestClient`.
+
 ```
 tests/
-├── conftest.py                ← shared fixtures
-├── test_progress.py           ← make_progress_event()
-├── test_formats.py            ← DownloadOptions validation
-├── test_renamer.py            ← sanitize, strip_noise, tier logic,
-│                                 embed_original_title (tmpdir),
-│                                 MusicBrainz (mocked HTTP)
-├── test_registry.py           ← in-memory SQLite CRUD
-├── test_job_store.py          ← JobStore operations, eviction
-├── test_models.py             ← DownloadJob/JobItem properties
-├── test_watcher_utils.py      ← _parse_bool, _normalise_youtube_url,
-│                                 _build_options, _filter_entries
-└── test_api.py                ← FastAPI routes via TestClient
-                                  (mock registry + job store)
+└── unit/
+    ├── conftest.py            ← shared fixtures (in-memory registry, tmp dirs)
+    ├── test_progress.py       ← make_progress_event()
+    ├── test_formats.py        ← DownloadOptions validation,
+    │                             build_video_format_selector(),
+    │                             build_audio_postprocessors(),
+    │                             build_options()
+    ├── test_models.py         ← DownloadJob/JobItem properties
+    │                             (.done_count, .failed_count, .is_terminal()),
+    │                             Pydantic model validation
+    ├── test_renamer.py        ← sanitize(), strip_noise(),
+    │                             resolve_file_path(), extract_extension(),
+    │                             update_title_metadata(),
+    │                             embed_original_title() (tmpdir),
+    │                             MusicBrainz tier (mocked HTTP)
+    ├── test_registry.py       ← in-memory SQLite CRUD
+    ├── test_job_store.py      ← JobStore create/update/evict/cancel
+    │                             (sync operations only; no event loop needed)
+    ├── test_downloader.py     ← filter_entries() with hand-crafted dicts,
+    │                             enumerate_entries() with mocked yt-dlp
+    └── test_api.py            ← FastAPI routes via TestClient,
+                                  _normalise_youtube_url() (pure helper)
 ```
 
-### Module testability breakdown
+### Module testability breakdown (post-watcher-split)
 
-| Module       | Testability | Notes                                                    |
-|--------------|-------------|----------------------------------------------------------|
-| progress.py  | TRIVIAL     | Pure data transform, no deps, no I/O                     |
-| formats.py   | EASY        | Dataclass validation, only shutil.which for ffmpeg check  |
-| renamer.py   | MEDIUM      | Pure logic (sanitize, noise strip, tier resolution) but has MusicBrainz HTTP calls & file renames |
-| registry.py  | MEDIUM      | SQLite DB, but in-memory `:memory:` makes it easy to isolate |
-| downloader   | HARD        | Wraps yt-dlp, needs mocking or integration setup          |
-| watcher.py   | HARD        | FastAPI daemon, scheduler, CLI argparse, threading. Splitting planned before adding tests. |
+| Module        | Testability | Notes                                                                  |
+|---------------|-------------|------------------------------------------------------------------------|
+| progress.py   | TRIVIAL     | Pure data transform, zero deps, zero I/O                               |
+| formats.py    | EASY        | Dataclass validation; only external dep is `shutil.which` (ffmpeg)    |
+| models.py     | TRIVIAL     | Pure dataclass properties + Pydantic validation; zero I/O              |
+| renamer.py    | MEDIUM      | Pure logic (sanitize, noise strip, file path resolution) + MusicBrainz HTTP (mock) + file I/O (tmpdir) |
+| registry.py   | MEDIUM      | SQLite CRUD; use `:memory:` for full isolation                         |
+| job_store.py  | MEDIUM      | Threading + asyncio.Queue bridge; sync ops testable without event loop |
+| downloader.py | HARD        | `filter_entries` testable with hand-crafted dicts; `download`/`sync_parallel` wrap yt-dlp deeply — integration only |
+| api.py        | MEDIUM      | Routes via sync `TestClient`; `_normalise_youtube_url` is a pure importable helper |
+| scheduler.py  | HARD        | threading.Timer + live sync_fn; skip for unit tests                    |
+| cli.py        | SKIP        | Thin HTTP clients — require running daemon; skip for unit tests         |
+| app.py        | SKIP        | Argparse wiring + uvicorn startup; no pure logic to test               |
 
-### What's testable in watcher.py without extraction
+### What moved from watcher.py
 
-| What | How | Needs extraction? |
-|------|-----|:-:|
-| `DownloadJob` properties (`.is_terminal()`, `.done_count`) | Direct import, pure logic | No |
-| `JobStore` create/update/evict/cancel | Instantiate in test, no daemon needed | No |
-| `_parse_bool()`, `_normalise_youtube_url()`, `_build_options()` | Pure functions | No |
-| `_filter_entries()`, `enumerate_entries()` | Mock yt-dlp, test filtering logic | No |
-| API routes | `httpx.AsyncClient` with TestClient | Partially — lifespan needs work |
-| CLI commands | They hit HTTP, need running daemon or mocking | Yes, eventually |
-| Scheduler | Threading + timers + real downloads | Yes, the hardest |
+| Old (watcher.py)         | Now                                          |
+|--------------------------|----------------------------------------------|
+| `_parse_bool()`          | Removed (no longer needed)                   |
+| `_normalise_youtube_url()` | `api.py` — private helper, still pure      |
+| `_build_options()`       | `formats.build_options()` — public           |
+| `_filter_entries()`      | `downloader.filter_entries()` — public       |
+| `enumerate_entries()`    | `downloader.enumerate_entries()` — public    |
+
+`test_watcher_utils.py` (from the original plan) is superseded by `test_downloader.py`
+and coverage of `_normalise_youtube_url` in `test_api.py`.
 
 ## Phase 2: Integration Tests
 
 **Trigger:** yt-dlp bump workflow + manual dispatch (not on every PR).
 
 ```
-tests/integration/
-├── conftest.py                ← real daemon startup/teardown,
-│                                 playlist URLs from env vars
-├── test_download_audio.py     ← real download, auto-rename on/off
-├── test_download_video.py     ← format/quality combos
-├── test_polling.py            ← interval changes, scheduler behavior
-└── test_sync_failed.py        ← retry logic with real failures
+tests/
+└── integration/
+    ├── conftest.py            ← real daemon startup/teardown,
+    │                             playlist URLs from env vars
+    ├── test_download_audio.py ← real download, auto-rename on/off
+    ├── test_download_video.py ← format/quality combos
+    ├── test_polling.py        ← interval changes, scheduler behavior
+    └── test_sync_failed.py    ← retry logic with real failures
 ```
 
 - Playlist URLs stored in GitHub secrets/variables
@@ -99,7 +121,7 @@ Real bug risk is backend (renamer edge cases, download failures, metadata embedd
 
 ## Sequencing
 
-1. **Extract watcher.py** into smaller modules (prerequisite — already needed for maintainability)
-2. **Phase 1: Unit tests** for all modules + CI workflow
-3. **Phase 2: Integration tests** tied to yt-dlp bump workflow
+1. ~~**Extract watcher.py** into smaller modules~~ ✓ Done
+2. **Phase 1: Unit tests** — `tests/unit/` + CI workflow on every PR
+3. **Phase 2: Integration tests** — `tests/integration/` tied to yt-dlp bump workflow
 4. **Phase 3: UI component tests** if/when the UI grows complex enough to warrant it
