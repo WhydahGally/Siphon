@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import ConfirmButton from './ConfirmButton.vue'
 import PlaylistItemsPanel from './PlaylistItemsPanel.vue'
 import { secsToHuman, ddhhmmssToSecs, secsToDdhhmmss } from '../utils/interval.js'
@@ -22,15 +22,34 @@ const syncInfo = computed(() => props.playlist.sync_info ?? null)
 const editingInterval = ref(false)
 const intervalInput = ref('')
 const currentIntervalSecs = ref(props.playlist.check_interval_secs)
+const intervalEditRef = ref(null)
+let _intervalClickOutside = null
 
 const intervalDisplay = computed(() => secsToHuman(currentIntervalSecs.value))
 
 function openIntervalEdit() {
   intervalInput.value = secsToDdhhmmss(currentIntervalSecs.value)
   editingInterval.value = true
+  nextTick(() => {
+    intervalEditRef.value?.querySelector('input')?.focus()
+    _intervalClickOutside = (e) => {
+      if (intervalEditRef.value && !intervalEditRef.value.contains(e.target)) {
+        cancelIntervalEdit()
+      }
+    }
+    document.addEventListener('mousedown', _intervalClickOutside)
+  })
+}
+
+function _removeIntervalListener() {
+  if (_intervalClickOutside) {
+    document.removeEventListener('mousedown', _intervalClickOutside)
+    _intervalClickOutside = null
+  }
 }
 
 async function saveInterval() {
+  _removeIntervalListener()
   const secs = ddhhmmssToSecs(intervalInput.value)
   editingInterval.value = false
   if (secs === null) return
@@ -45,6 +64,7 @@ async function saveInterval() {
 }
 
 function cancelIntervalEdit() {
+  _removeIntervalListener()
   editingInterval.value = false
 }
 
@@ -223,17 +243,16 @@ onMounted(() => {
                 title="Click to edit sync interval"
                 @click.prevent.stop="openIntervalEdit"
               >{{ intervalDisplay }}<svg class="pencil-icon" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
-              <input
-                v-else
-                v-model="intervalInput"
-                class="interval-input"
-                placeholder="DD:HH:MM:SS"
-                autofocus
-                @keydown.enter="saveInterval"
-                @keydown.escape="cancelIntervalEdit"
-                @blur="saveInterval"
-                @click.stop
-              />
+              <span v-else ref="intervalEditRef" class="interval-edit-group" @click.stop>
+                <input
+                  v-model="intervalInput"
+                  class="interval-input"
+                  placeholder="DD:HH:MM:SS"
+                  @keydown.enter.prevent="saveInterval"
+                  @keydown.escape="cancelIntervalEdit"
+                />
+                <button class="btn-save-interval" @mousedown.stop @click="saveInterval">Save</button>
+              </span>
             </span>
           </label>
         </div>
@@ -513,6 +532,12 @@ onMounted(() => {
   opacity: 0.5;
 }
 
+.interval-edit-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .interval-input {
   width: 110px;
   background: var(--surface-2);
@@ -522,6 +547,24 @@ onMounted(() => {
   color: var(--text);
   font-size: 13px;
   outline: none;
+}
+
+.btn-save-interval {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: #fff;
+  padding: 4px 9px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn-save-interval:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 /* ── Right: delete strip ─────────────────────────────────────── */
