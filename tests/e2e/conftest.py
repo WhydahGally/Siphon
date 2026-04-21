@@ -72,7 +72,7 @@ def poll_items_stable(http: requests.Session, base_url: str, playlist_id: str, m
             return items
         prev_count = count
         time.sleep(3)
-    pytest.fail(f"Playlist {playlist_id} never reached a stable item count ≥ {min_count} within {timeout}s")
+    pytest.fail(f"Playlist {playlist_id} never reached a stable item count >= {min_count} within {timeout}s")
 
 
 # ---------------------------------------------------------------------------
@@ -105,30 +105,35 @@ def preflight():
     On CI (CI=true) warnings are printed and execution continues automatically.
     Locally the user is prompted to press Y to continue.
     """
-    warnings = []
+    check_warnings = []
     if _is_port_open(8000):
-        warnings.append(
-            "  ⚠  Port 8000 is already in use — is your dev daemon running?\n"
-            "     Stop it before running e2e tests to avoid conflicts."
+        check_warnings.append(
+            "  WARNING  Port 8000 is already in use -- is your dev daemon running?\n"
+            "           Stop it before running e2e tests to avoid conflicts."
         )
     if _downloads_has_files():
-        warnings.append(
-            f"  ⚠  {_DOWNLOADS_DIR} contains existing files.\n"
-            "     They will NOT be deleted, but may affect filename assertion tests."
+        check_warnings.append(
+            f"  WARNING  {_DOWNLOADS_DIR} contains existing files.\n"
+            "           They will NOT be deleted, but may affect filename assertion tests."
         )
 
-    if warnings:
-        print("\n[E2E PRE-FLIGHT]", flush=True)
-        for w in warnings:
-            print(w, flush=True)
+    if check_warnings:
+        sys.stderr.write("\n[E2E PRE-FLIGHT]\n")
+        for w in check_warnings:
+            sys.stderr.write(w + "\n")
+        sys.stderr.flush()
 
         is_ci = os.getenv("CI") == "true"
         if is_ci:
-            print("  Running on CI — continuing automatically.", flush=True)
+            sys.stderr.write("  Running on CI -- continuing automatically.\n")
+            sys.stderr.flush()
         else:
             try:
-                answer = input("\nPress Y to continue, or Ctrl-C to abort: ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
+                with open("/dev/tty") as tty:
+                    sys.stderr.write("\nPress Y to continue, or Ctrl-C to abort: ")
+                    sys.stderr.flush()
+                    answer = tty.readline().strip().lower()
+            except (KeyboardInterrupt, OSError):
                 pytest.exit("E2E pre-flight aborted.", returncode=1)
             if answer != "y":
                 pytest.exit("E2E pre-flight aborted by user.", returncode=1)
@@ -167,7 +172,7 @@ def daemon(preflight):
         proc.wait()
         pytest.fail("Siphon daemon did not become healthy within 30 seconds.")
 
-    # Factory reset — wipe any leftover state from previous runs
+    # Factory reset -- wipe any leftover state from previous runs
     session.post(f"{BASE_URL}/factory-reset")
     session.close()
 
