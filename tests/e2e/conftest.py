@@ -89,7 +89,7 @@ def _downloads_has_files() -> bool:
     if not os.path.isdir(_DOWNLOADS_DIR):
         return False
     for _root, _dirs, files in os.walk(_DOWNLOADS_DIR):
-        if files:
+        if any(not f.startswith(".") for f in files):
             return True
     return False
 
