@@ -1,0 +1,38 @@
+name: E2E Tests
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - main
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    name: pytest (e2e)
+    runs-on: ubuntu-latest
+
+    env:
+      E2E_PLAYLIST_URL: ${{ secrets.E2E_PLAYLIST_URL }}
+      E2E_SINGLE_VIDEO_URL: ${{ secrets.E2E_SINGLE_VIDEO_URL }}
+      E2E_MB_USER_AGENT: ${{ secrets.E2E_MB_USER_AGENT }}
+      CI: "true"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Install dev dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run e2e tests
+        run: pytest tests/e2e/ -v --tb=short --reruns 1 --reruns-delay 5

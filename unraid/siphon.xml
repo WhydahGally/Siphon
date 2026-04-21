@@ -15,6 +15,7 @@
     <DonateText/>
     <DonateLink/>
     <DonateImg/>
+    <Support>https://forums.unraid.net/topic/198336-support-whydahgallysiphon-docker-template/</Support>
     <Privileged>false</Privileged>
     <Overview>YT playlist watcher with auto-download, scheduling, and smart renaming. Built for music. Watches playlists for new additions and downloads them automatically on a configurable schedule.</Overview>
     <Category>Downloaders:</Category>

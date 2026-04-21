@@ -56,3 +56,10 @@ jobs:
             --body "Bumps yt-dlp from \`${{ steps.check.outputs.current }}\` to \`${{ steps.check.outputs.latest }}\`.
 
           [Release notes](https://github.com/yt-dlp/yt-dlp/releases/tag/${{ steps.check.outputs.latest }})"
+
+      - name: Trigger e2e tests on bump branch
+        if: steps.check.outputs.up_to_date == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run e2e-tests.yml --ref chore/bump-ytdlp

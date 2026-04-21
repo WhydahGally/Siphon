@@ -74,26 +74,44 @@ tests/
 `test_watcher_utils.py` (from the original plan) is superseded by `test_downloader.py`
 and coverage of `_normalise_youtube_url` in `test_api.py`.
 
-## Phase 2: Integration Tests
+## Phase 2: E2E Tests
 
-**Trigger:** yt-dlp bump workflow + manual dispatch (not on every PR).
+**Trigger:** Every PR to `develop`/`main`, `workflow_dispatch`, and automatically after yt-dlp bump PR creation.
+**Retry:** `--reruns 1 --reruns-delay 5` — one retry on failure, then manual re-trigger.
+
+### Key decisions
+
+- No env var isolation — factory-reset via `POST /factory-reset` in session fixture wipes DB state
+- Port 8000 hardcoded; pre-flight warns if dev daemon already running
+- Pre-flight prompts Y/N locally; auto-continues on CI (`CI=true`)
+- `@pytest.mark.slow` on download-heavy tests; run `pytest tests/e2e/ -m "not slow"` locally for fast iteration
+- Real URLs and MusicBrainz user-agent in GitHub secrets: `SIPHON_E2E_PLAYLIST_URL`, `SIPHON_E2E_VIDEO_URL`, `SIPHON_E2E_KNOWN_TRACK_URL`, `SIPHON_E2E_MB_USER_AGENT`
+- Tests skip gracefully when required secrets are absent
 
 ```
 tests/
-└── integration/
-    ├── conftest.py            ← real daemon startup/teardown,
-    │                             playlist URLs from env vars
-    ├── test_download_audio.py ← real download, auto-rename on/off
-    ├── test_download_video.py ← format/quality combos
-    ├── test_polling.py        ← interval changes, scheduler behavior
-    └── test_sync_failed.py    ← retry logic with real failures
+└── e2e/
+    ├── conftest.py              ← pre-flight, daemon subprocess, factory-reset,
+    │                               base_url/http fixtures, require_env(),
+    │                               poll_job_terminal(), poll_items_stable()
+    ├── test_health.py           ← GET /health, GET /version
+    ├── test_playlist_sync.py    ← registration (fast), sync populates items (@slow),
+    │                               no duplicates on second sync (@slow)
+    ├── test_scheduler.py        ← auto-sync with short interval (@slow),
+    │                               interval change takes effect on next cycle (@slow)
+    ├── test_single_video.py     ← POST /jobs, file on disk, mutagen duration > 0,
+    │                               job state transitions (@slow)
+    ├── test_cancel.py           ← cancel-all mid-flight, pending → cancelled (@slow)
+    ├── test_renamer.py          ← auto_rename on/off, unsafe chars → visual Unicode,
+    │                               noise suffix stripped (@slow)
+    ├── test_renamer_tiers.py    ← musicbrainz / yt_metadata / yt_title tiers (@slow)
+    └── test_musicbrainz.py      ← TXXX:original_title embedded in ID3, no 429 (@slow)
 ```
 
-- Playlist URLs stored in GitHub secrets/variables
-- Scenarios: auto-rename on/off, polling interval on/off, changing intervals
-- Validates against real-world playlists
-- Attached to yt-dlp bump workflow to catch breakage from version updates
-- Unit tests not needed here — integration-only
+### CI workflows
+
+- **`e2e-tests.yml`** — new workflow: triggers on PRs + manual dispatch, runs `pytest tests/e2e/ --reruns 1 --reruns-delay 5`
+- **`ytdlp-bump.yml`** — updated: triggers `gh workflow run e2e-tests.yml --ref chore/bump-ytdlp` after bump PR is created
 
 ## Phase 3: UI Testing (future, optional)
 
@@ -122,6 +140,6 @@ Real bug risk is backend (renamer edge cases, download failures, metadata embedd
 ## Sequencing
 
 1. ~~**Extract watcher.py** into smaller modules~~ ✓ Done
-2. **Phase 1: Unit tests** — `tests/unit/` + CI workflow on every PR
-3. **Phase 2: Integration tests** — `tests/integration/` tied to yt-dlp bump workflow
+2. ~~**Phase 1: Unit tests** — `tests/unit/` + CI workflow on every PR~~ ✓ Done
+3. **Phase 2: E2E tests** — `tests/e2e/` + `e2e-tests.yml` + `ytdlp-bump.yml` update
 4. **Phase 3: UI component tests** if/when the UI grows complex enough to warrant it
