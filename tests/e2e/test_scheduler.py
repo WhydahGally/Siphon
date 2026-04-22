@@ -32,8 +32,14 @@ def test_scheduler_auto_syncs(http, base_url):
         f"{base_url}/playlists",
         json={"url": url, "format": "mp3", "auto_rename": False, "watched": True, "check_interval_secs": 15, "download": False},
     )
-    assert r.status_code == 201, f"POST /playlists failed: {r.text}"
-    playlist_id = r.json()["id"]
+    if r.status_code == 409:
+        all_playlists = http.get(f"{base_url}/playlists").json()
+        existing = next((p for p in all_playlists if p["url"] == url), None)
+        assert existing is not None, "Playlist already registered but not found in GET /playlists"
+        playlist_id = existing["id"]
+    else:
+        assert r.status_code == 201, f"POST /playlists failed: {r.text}"
+        playlist_id = r.json()["id"]
 
     try:
         # Wait 20 s — the scheduler should fire and download at least 1 item
@@ -60,8 +66,14 @@ def test_scheduler_interval_change_takes_effect(http, base_url):
         f"{base_url}/playlists",
         json={"url": url, "format": "mp3", "auto_rename": False, "watched": True, "check_interval_secs": 60, "download": False},
     )
-    assert r.status_code == 201, f"POST /playlists failed: {r.text}"
-    playlist_id = r.json()["id"]
+    if r.status_code == 409:
+        all_playlists = http.get(f"{base_url}/playlists").json()
+        existing = next((p for p in all_playlists if p["url"] == url), None)
+        assert existing is not None, "Playlist already registered but not found in GET /playlists"
+        playlist_id = existing["id"]
+    else:
+        assert r.status_code == 201, f"POST /playlists failed: {r.text}"
+        playlist_id = r.json()["id"]
 
     try:
         # Patch to short interval — scheduler rearranges the timer

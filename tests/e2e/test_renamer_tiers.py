@@ -30,6 +30,10 @@ def known_track_job(http, base_url):
     r = http.put(f"{base_url}/settings/mb-user-agent", json={"value": mb_ua})
     assert r.status_code == 200, f"Failed to set mb-user-agent: {r.text}"
 
+    # Brief pause to let any MusicBrainz rate limits from earlier tests clear
+    import time
+    time.sleep(5)
+
     r = http.post(
         f"{base_url}/jobs",
         json={"url": url, "format": "mp3", "auto_rename": True, "watched": False},

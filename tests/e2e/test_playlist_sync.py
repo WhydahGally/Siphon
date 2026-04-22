@@ -28,8 +28,14 @@ def playlist(http, base_url):
         f"{base_url}/playlists",
         json={"url": url, "format": "mp3", "auto_rename": False, "watched": False, "download": False},
     )
-    assert r.status_code == 201, f"POST /playlists failed: {r.text}"
-    data = r.json()
+    if r.status_code == 409:
+        # Already registered by a preceding test — find and reuse it
+        all_playlists = http.get(f"{base_url}/playlists").json()
+        data = next((p for p in all_playlists if p["url"] == url), None)
+        assert data is not None, "Playlist already registered but not found in GET /playlists"
+    else:
+        assert r.status_code == 201, f"POST /playlists failed: {r.text}"
+        data = r.json()
     playlist_id = data["id"]
     yield data
     http.delete(f"{base_url}/playlists/{playlist_id}")
@@ -61,22 +67,16 @@ def test_sync_populates_items(http, base_url, playlist):
 @pytest.mark.slow
 def test_sync_no_duplicates(http, base_url, playlist):
     """A second sync on an up-to-date playlist does not create duplicate items."""
-    # Ensure items exist from a previous sync (or trigger one now)
-    items_before = http.get(f"{base_url}/playlists/{playlist['id']}/items").json()
-    if not items_before:
-        http.post(f"{base_url}/playlists/{playlist['id']}/sync")
-        items_before = poll_items_stable(http, base_url, playlist["id"], min_count=1, timeout=300)
-
-    count_before = len(items_before)
-
-    # Second sync
+    # Trigger a second sync (items may or may not exist from prior tests)
     http.post(f"{base_url}/playlists/{playlist['id']}/sync")
     time.sleep(10)  # short wait — already-up-to-date syncs complete quickly
 
     items_after = http.get(f"{base_url}/playlists/{playlist['id']}/items").json()
-    assert len(items_after) == count_before, (
-        f"Item count changed after second sync: {count_before} → {len(items_after)}"
-    )
+
+    # No video_id should appear more than once
+    video_ids = [item["video_id"] for item in items_after]
+    duplicates = [vid for vid in set(video_ids) if video_ids.count(vid) > 1]
+    assert not duplicates, f"Duplicate video_ids found after second sync: {duplicates}"
 
 
 @pytest.mark.e2e

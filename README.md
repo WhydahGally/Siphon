@@ -133,6 +133,30 @@ npm run dev
 | `siphon playlist-items <name>`                    | List all downloaded items for a playlist.                                                                                 |
 | `siphon rename-item <playlist> <current-name> <new-name>` | Rename a downloaded item in a playlist. Renames the file on disk and sets the rename tier to `manual`.              |
 
+### Running Tests
+
+**Unit tests** (no daemon required):
+
+```bash
+pytest tests/unit/ -v
+```
+
+**End-to-end tests** require a running network connection and real YouTube URLs. Create `tests/.env` with your secrets:
+
+```bash
+export E2E_PLAYLIST_URL="https://www.youtube.com/playlist?list=..."
+export E2E_SINGLE_VIDEO_URL="https://www.youtube.com/watch?v=..."
+export E2E_MB_USER_AGENT="YourApp/1.0 (you@example.com)"
+# macOS only — fixes SSL verification for MusicBrainz lookups
+export REQUESTS_CA_BUNDLE=/opt/homebrew/etc/openssl@3/cert.pem
+```
+
+Then run (do **not** have the dev daemon running — the suite manages its own):
+
+```bash
+make -f tests/Makefile e2e
+```
+
 ## Submitting Issues
 
 Siphon is a wrapper around [yt-dlp](https://github.com/yt-dlp/yt-dlp). Many issues — especially download failures, authentication errors, format extraction problems or are caused by yt-dlp, not Siphon.

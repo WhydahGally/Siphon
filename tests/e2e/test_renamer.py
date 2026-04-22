@@ -83,33 +83,6 @@ def test_auto_rename_true_sets_renamed_to(renamed_job):
 
 @pytest.mark.e2e
 @pytest.mark.slow
-def test_auto_rename_false_leaves_raw_title(http, base_url):
-    """With auto_rename=False, job items have no renamed_to (raw yt-dlp output)."""
-    url = require_env("E2E_PLAYLIST_URL")
-
-    r = http.post(
-        f"{base_url}/jobs",
-        json={"url": url, "format": "mp3", "auto_rename": False, "watched": False},
-    )
-    if r.status_code == 422:
-        pytest.skip("Playlist already registered and up to date — skip auto_rename=False check")
-    assert r.status_code == 202, f"POST /jobs failed: {r.text}"
-    job_id = r.json()["job_id"]
-
-    job = poll_job_terminal(http, base_url, job_id, timeout=600)
-    done_items = [i for i in job["items"] if i["state"] == "done"]
-    assert done_items, "No items downloaded"
-
-    # With auto_rename=False, renamed_to may still be set to a passthrough value
-    # (same as yt_title). The key check: rename_tier should be absent or None.
-    for item in done_items:
-        assert item.get("rename_tier") is None or item["rename_tier"] in (None, ""), (
-            f"Expected no rename tier for auto_rename=False, got: {item.get('rename_tier')}"
-        )
-
-
-@pytest.mark.e2e
-@pytest.mark.slow
 def test_unsafe_chars_replaced_with_visual_equivalents(renamed_job):
     """
     For any renamed item whose original yt_title contains filesystem-unsafe chars,
@@ -163,3 +136,46 @@ def test_noise_suffix_stripped_from_filename(renamed_job):
                 f"Noise suffix '{ns}' still present in renamed_to '{item['renamed_to']}' "
                 f"(original: '{item['yt_title']}')"
             )
+
+
+@pytest.mark.e2e
+@pytest.mark.slow
+def test_auto_rename_false_leaves_raw_title(http, base_url):
+    """
+    With auto_rename=False, job items have no rename_tier.
+
+    Run last in this module so the renamed_job fixture has already consumed all
+    items. We delete the existing playlist and re-register from scratch so the
+    daemon sees fresh items to download.
+    """
+    url = require_env("E2E_PLAYLIST_URL")
+
+    # Delete the existing playlist so all items become eligible for download again
+    all_playlists = http.get(f"{base_url}/playlists").json()
+    existing = next((p for p in all_playlists if p["url"] == url), None)
+    if existing:
+        http.delete(f"{base_url}/playlists/{existing['id']}")
+
+    r = http.post(
+        f"{base_url}/jobs",
+        json={"url": url, "format": "mp3", "auto_rename": False, "watched": False},
+    )
+    assert r.status_code == 202, f"POST /jobs failed: {r.text}"
+    job_id = r.json()["job_id"]
+
+    try:
+        job = poll_job_terminal(http, base_url, job_id, timeout=600)
+        done_items = [i for i in job["items"] if i["state"] == "done"]
+        assert done_items, "No items downloaded"
+
+        # With auto_rename=False, rename_tier should be absent or None.
+        for item in done_items:
+            assert item.get("rename_tier") is None, (
+                f"Expected no rename_tier for auto_rename=False, got: {item.get('rename_tier')}"
+            )
+    finally:
+        # Clean up: delete the playlist we registered for this test
+        all_playlists = http.get(f"{base_url}/playlists").json()
+        p = next((p for p in all_playlists if p["url"] == url), None)
+        if p:
+            http.delete(f"{base_url}/playlists/{p['id']}")
