@@ -80,6 +80,10 @@ The web UI is available at `http://<your-ip>:8778`.
 
 Contributions are welcome! AI-generated code is also welcome — but only if it follows spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec/tree/main). No yolo PRs. Every change needs specs committed alongside the code.
 
+**Before opening a PR:**
+- **New features** — open a [Discussion](https://github.com/WhydahGally/Siphon/discussions) first to align on scope and approach before writing any specs or code.
+- **Bug fixes** — open an [Issue](https://github.com/WhydahGally/Siphon/issues) first to confirm the bug and agree on the fix.
+
 When raising a PR:
 1. Include the OpenSpec artifacts (proposal, design, specs, tasks) in the `openspec/changes/` directory.
 2. Ensure specs exist for any new capabilities under `openspec/specs/`.
