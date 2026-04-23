@@ -27,6 +27,18 @@ BASE_URL = "http://localhost:8000"
 _REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DOWNLOADS_DIR = os.path.join(_REPO_ROOT, "downloads")
 
+# Mapping from db key (returned by GET /settings) → api key (used by PUT /settings/{key})
+_SETTINGS_DB_TO_API = {
+    "mb_user_agent": "mb-user-agent",
+    "log_level": "log-level",
+    "max_concurrent_downloads": "max-concurrent-downloads",
+    "check_interval": "interval",
+    "auto_rename_default": "auto-rename",
+    "theme": "theme",
+    "browser_logs": "browser-logs",
+    "title_noise_patterns": "title-noise-patterns",
+}
+
 
 # ---------------------------------------------------------------------------
 # Utility helpers (plain functions, not fixtures — call directly in tests)
@@ -94,6 +106,44 @@ def _downloads_has_files() -> bool:
     return False
 
 
+def _snapshot_downloads() -> set:
+    """Return the set of absolute paths for all non-hidden files in downloads/."""
+    snapshot: set = set()
+    if not os.path.isdir(_DOWNLOADS_DIR):
+        return snapshot
+    for root, _dirs, files in os.walk(_DOWNLOADS_DIR):
+        for f in files:
+            if not f.startswith("."):
+                snapshot.add(os.path.join(root, f))
+    return snapshot
+
+
+def _cleanup_downloads(before: set) -> None:
+    """Delete files created during the test run and prune empty subdirectories."""
+    if not os.path.isdir(_DOWNLOADS_DIR):
+        return
+    for root, _dirs, files in os.walk(_DOWNLOADS_DIR):
+        for f in files:
+            if f.startswith("."):
+                continue
+            path = os.path.join(root, f)
+            if path not in before:
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+    # Prune empty subdirectories (bottom-up)
+    for root, _dirs, _files in os.walk(_DOWNLOADS_DIR, topdown=False):
+        if root == _DOWNLOADS_DIR:
+            continue
+        remaining = [e for e in os.listdir(root) if not e.startswith(".")]
+        if not remaining:
+            try:
+                os.rmdir(root)
+            except OSError:
+                pass
+
+
 # ---------------------------------------------------------------------------
 # Session-scoped fixtures
 # ---------------------------------------------------------------------------
@@ -147,7 +197,7 @@ def daemon(preflight):
     Terminates the daemon after the session.
     """
     proc = subprocess.Popen(
-        [sys.executable, "-m", "siphon"],
+        [sys.executable, "-m", "siphon", "start"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         cwd=_REPO_ROOT,
@@ -174,9 +224,27 @@ def daemon(preflight):
 
     # Factory reset -- wipe any leftover state from previous runs
     session.post(f"{BASE_URL}/factory-reset")
+
+    # Snapshot settings and existing downloads so we can restore them after the run
+    settings_snapshot = session.get(f"{BASE_URL}/settings").json()
     session.close()
+    downloads_snapshot = _snapshot_downloads()
 
     yield
+
+    # --- Teardown: restore settings and clean up downloaded files ---
+    restore = requests.Session()
+    try:
+        current = restore.get(f"{BASE_URL}/settings").json()
+        for db_key, original_value in settings_snapshot.items():
+            if current.get(db_key) != original_value:
+                api_key = _SETTINGS_DB_TO_API.get(db_key)
+                if api_key:
+                    restore.put(f"{BASE_URL}/settings/{api_key}", json={"value": original_value})
+    finally:
+        restore.close()
+
+    _cleanup_downloads(downloads_snapshot)
 
     proc.terminate()
     proc.wait()
