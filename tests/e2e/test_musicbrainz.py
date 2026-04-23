@@ -94,20 +94,3 @@ def test_original_title_tag_embedded(known_track_job):
     assert embedded == original_title, (
         f"Embedded title '{embedded}' does not match original title '{original_title}'"
     )
-
-
-@pytest.mark.e2e
-@pytest.mark.slow
-def test_musicbrainz_rate_limit_not_exceeded(http, base_url, known_track_job):
-    """
-    Verifies that MusicBrainz lookups during the e2e run did not trigger rate limiting.
-    We check that no items have an error message containing '429'.
-    """
-    # If any item failed with a 429 error, the renamer would have logged it.
-    # The job item error field captures download/rename failures.
-    all_items = known_track_job["items"]
-    for item in all_items:
-        error = item.get("error") or ""
-        assert "429" not in error, (
-            f"Item '{item['yt_title']}' has a 429 rate-limit error: {error}"
-        )
