@@ -93,11 +93,11 @@ jobs:
             const commitUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}/commit/${headSha}`;
             const marker = '<!-- siphon-unit-results -->';
             const stats  = `${passed} passed \u00B7 ${skipped} skipped \u00B7 ${failed} failed \u00B7 ${total} total`;
-            const meta   = `[Run #${context.runNumber}](${runUrl}) \u00B7 [\`${shortSha}\`](${commitUrl})`;
+            const meta   = `[Run #${context.runNumber}](${runUrl}) &nbsp; [\`${shortSha}\`](${commitUrl})`;
             const body = [
               marker,
               `> [!${alertType}]`,
-              `> **Unit Tests \u2014 ${statusText}** &nbsp;\u00B7&nbsp; ${stats} &nbsp;\u00B7&nbsp; ${meta}`,
+              `> **Unit Tests - ${statusText}** &nbsp;-&nbsp; ${stats} &nbsp;|&nbsp; ${meta}`,
             ].join('\n');
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
