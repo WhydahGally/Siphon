@@ -79,13 +79,13 @@ jobs:
             const total   = parseInt('${{ steps.parse.outputs.total }}');
             let alertType, statusText;
             if (failed > 0) {
-              alertType = 'CAUTION'; statusText = 'Failing';
+              alertType = 'CAUTION'; statusText = 'failing';
             } else if (passed === 0 && total > 0) {
-              alertType = 'CAUTION'; statusText = 'All Skipped';
+              alertType = 'CAUTION'; statusText = 'all skipped';
             } else if (skipped > 0) {
-              alertType = 'WARNING'; statusText = 'Passed with skips';
+              alertType = 'WARNING'; statusText = 'passed with skips';
             } else {
-              alertType = 'NOTE'; statusText = 'Passing';
+              alertType = 'NOTE'; statusText = 'passing';
             }
             const headSha   = context.payload.pull_request.head.sha;
             const shortSha  = headSha.slice(0, 7);
@@ -97,7 +97,7 @@ jobs:
             const body = [
               marker,
               `> [!${alertType}]`,
-              `> **Unit Tests - ${statusText}** &nbsp;-&nbsp; ${stats} &nbsp;|&nbsp; ${meta}`,
+              `> **Unit Tests ${statusText}** &nbsp;-&nbsp; ${stats} &nbsp;|&nbsp; ${meta}`,
             ].join('\n');
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
