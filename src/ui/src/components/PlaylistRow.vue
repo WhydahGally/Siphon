@@ -187,19 +187,19 @@ onMounted(() => {
     <!-- ══ MOBILE HEADER (≤640px only) ══════════════════════════════════════ -->
     <div class="mobile-header">
       <div class="mobile-title-row">
+        <button
+          class="btn-sync-icon"
+          :style="{ visibility: syncing ? 'hidden' : 'visible' }"
+          title="Sync now"
+          @click="triggerSync"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+        </button>
         <span class="playlist-name mobile-name">{{ playlist.name }}</span>
         <div class="mobile-header-actions">
-          <button
-            class="btn-sync-icon"
-            :style="{ visibility: syncing ? 'hidden' : 'visible' }"
-            title="Sync now"
-            @click="triggerSync"
-          >
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="23 4 23 10 17 10"/>
-              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
-            </svg>
-          </button>
           <div class="mobile-delete">
             <ConfirmButton label="Delete" @confirm="handleDelete">
               <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
