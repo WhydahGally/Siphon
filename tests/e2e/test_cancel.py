@@ -27,7 +27,8 @@ def test_cancel_leaves_cancelled_items(http, base_url):
     """
     url = require_env("E2E_PLAYLIST_URL")
 
-    # Set max concurrent downloads to 1 so pending items accumulate
+    # Save current value, then set max concurrent downloads to 1
+    original = http.get(f"{base_url}/settings/max-concurrent-downloads").json()["value"]
     http.put(f"{base_url}/settings/max-concurrent-downloads", json={"value": "1"})
 
     try:
@@ -68,5 +69,5 @@ def test_cancel_leaves_cancelled_items(http, base_url):
         assert "cancelled" in states, f"No items were cancelled: {states}"
 
     finally:
-        # Restore default max concurrent downloads
-        http.put(f"{base_url}/settings/max-concurrent-downloads", json={"value": "5"})
+        # Restore original max concurrent downloads
+        http.put(f"{base_url}/settings/max-concurrent-downloads", json={"value": original})

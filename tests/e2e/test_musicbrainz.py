@@ -1,9 +1,8 @@
 """
-tests/e2e/test_musicbrainz.py — MusicBrainz integration: ID3 tag embedding and rate limiting.
+tests/e2e/test_musicbrainz.py — MusicBrainz integration: ID3 tag embedding.
 
 Covers:
   - Downloaded known track has TXXX:original_title embedded in ID3 tags
-  - MusicBrainz rate limit is respected (no 429 observed during the run)
 
 The TXXX:original_title tag is embedded by embed_original_title() in renamer.py
 for every renamed file regardless of tier. The test reads the tag with mutagen

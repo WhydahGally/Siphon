@@ -1,11 +1,12 @@
 """
-tests/e2e/test_renamer.py — Auto-rename on/off and filename sanitisation scenarios.
+tests/e2e/test_renamer.py — Auto-rename on/off, filename sanitisation, and manual rename.
 
 Covers:
   - auto_rename=True: job item has renamed_to, filename on disk is clean
   - auto_rename=False: job item renamed_to is None or equals yt_title (raw output)
   - Visual-equivalent Unicode replaces filesystem-unsafe chars in title
   - Noise suffixes (Official Music Video, etc.) are stripped from filenames
+  - Manual rename via PUT /jobs/{id}/items/{video_id}/rename updates DB and disk
 
 Note on unsafe-char and noise-strip tests:
   These rely on videos in the configured playlist having titles with those properties.
@@ -136,6 +137,67 @@ def test_noise_suffix_stripped_from_filename(renamed_job):
                 f"Noise suffix '{ns}' still present in renamed_to '{item['renamed_to']}' "
                 f"(original: '{item['yt_title']}')"
             )
+
+
+@pytest.mark.e2e
+@pytest.mark.slow
+def test_manual_rename_updates_db_and_disk(http, base_url, renamed_job):
+    """
+    PUT /jobs/{id}/items/{video_id}/rename renames the file on disk,
+    updates renamed_to in the response, and sets rename_tier to 'manual'.
+    """
+    done_items = [i for i in renamed_job["items"] if i["state"] == "done"]
+    assert done_items, "No items downloaded"
+
+    item = done_items[0]
+    video_id = item["video_id"]
+    job_id = renamed_job["job_id"]
+    playlist_id = renamed_job.get("playlist_id")
+
+    new_name = "E2E Renamed Track"
+
+    r = http.put(
+        f"{base_url}/jobs/{job_id}/items/{video_id}/rename",
+        json={"new_name": new_name},
+    )
+    assert r.status_code == 200, f"PUT rename failed: {r.text}"
+    updated = r.json()
+
+    # Response assertions
+    assert updated["renamed_to"] == new_name, (
+        f"renamed_to not updated: expected '{new_name}', got '{updated['renamed_to']}'"
+    )
+    assert updated["rename_tier"] == "manual", (
+        f"rename_tier not 'manual': got '{updated['rename_tier']}'"
+    )
+
+    # Verify via GET /jobs
+    jobs = http.get(f"{base_url}/jobs").json()
+    job = next((j for j in jobs if j["job_id"] == job_id), None)
+    assert job is not None, "Job not found in GET /jobs"
+    db_item = next((i for i in job["items"] if i["video_id"] == video_id), None)
+    assert db_item is not None, "Item not found in job"
+    assert db_item["renamed_to"] == new_name
+    assert db_item["rename_tier"] == "manual"
+
+    # Also verify via playlist items endpoint
+    if playlist_id:
+        items = http.get(f"{base_url}/playlists/{playlist_id}/items").json()
+        pl_item = next((i for i in items if i["video_id"] == video_id), None)
+        if pl_item:
+            assert pl_item["renamed_to"] == new_name
+            assert pl_item["rename_tier"] == "manual"
+
+    # Disk assertion
+    found = False
+    for root, _dirs, files in os.walk(_DOWNLOADS_DIR):
+        for fname in files:
+            if fname.startswith(new_name[:15]) and fname.endswith((".mp3", ".opus", ".m4a", ".ogg")):
+                found = True
+                break
+        if found:
+            break
+    assert found, f"Renamed file not found on disk matching '{new_name[:15]}...' in {_DOWNLOADS_DIR}"
 
 
 @pytest.mark.e2e

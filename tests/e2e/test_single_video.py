@@ -50,6 +50,26 @@ def test_job_reaches_done(completed_video_job):
 
 @pytest.mark.e2e
 @pytest.mark.slow
+def test_clear_done_removes_completed_items(http, base_url, completed_video_job):
+    """POST /jobs/{id}/clear-done removes done items from the job."""
+    job_id = completed_video_job["job_id"]
+    done_before = [i for i in completed_video_job["items"] if i["state"] == "done"]
+    assert done_before, "No done items to clear"
+
+    r = http.post(f"{base_url}/jobs/{job_id}/clear-done")
+    assert r.status_code == 200, f"POST /jobs/{job_id}/clear-done failed: {r.text}"
+    assert r.json()["cleared"] >= 1, "Expected at least 1 cleared item"
+
+    # Verify done items are gone
+    jobs = http.get(f"{base_url}/jobs").json()
+    job = next((j for j in jobs if j["job_id"] == job_id), None)
+    if job:
+        remaining_done = [i for i in job["items"] if i["state"] == "done"]
+        assert len(remaining_done) == 0, f"Done items still present after clear: {remaining_done}"
+
+
+@pytest.mark.e2e
+@pytest.mark.slow
 def test_file_exists_on_disk(completed_video_job):
     """A downloaded audio file exists under the downloads directory."""
     done_items = [i for i in completed_video_job["items"] if i["state"] == "done"]
