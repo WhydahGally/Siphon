@@ -59,9 +59,9 @@ jobs:
           git push origin main
           git fetch origin develop
           git checkout develop
-          sed -i "s/^version = \".*\"/version = \"${version}.dev0\"/" pyproject.toml
+          sed -i "s/^version = \".*\"/version = \"${version}\"/" pyproject.toml
           git add pyproject.toml
-          git commit -m "chore: bump dev version to ${version}.dev0"
+          git commit -m "chore: bump version to ${version}"
           git push origin develop
           git checkout main
 
