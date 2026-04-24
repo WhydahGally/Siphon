@@ -345,6 +345,7 @@ async function handleDownload() {
   cursor: pointer;
   user-select: none;
   font-size: 14px;
+  min-height: 28px;
 }
 
 .toggle-switch {
@@ -405,9 +406,10 @@ async function handleDownload() {
   font-size: 13px;
   color: var(--text-muted);
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 5px;
+  vertical-align: middle;
 }
 .interval-display:hover { color: var(--text); }
 

@@ -558,6 +558,7 @@ onMounted(() => {
   user-select: none;
   font-size: 13px;
   color: var(--text-muted);
+  min-height: 28px;
 }
 
 .toggle-switch {
