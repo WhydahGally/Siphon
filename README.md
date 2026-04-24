@@ -80,6 +80,10 @@ The web UI is available at `http://<your-ip>:8778`.
 
 Contributions are welcome! AI-generated code is also welcome — but only if it follows spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec/tree/main). No yolo PRs. Every change needs specs committed alongside the code.
 
+**Before opening a PR:**
+- **New features** — open a [Discussion](https://github.com/WhydahGally/Siphon/discussions) first to align on scope and approach before writing any specs or code.
+- **Bug fixes** — open an [Issue](https://github.com/WhydahGally/Siphon/issues) first to confirm the bug and agree on the fix.
+
 When raising a PR:
 1. Include the OpenSpec artifacts (proposal, design, specs, tasks) in the `openspec/changes/` directory.
 2. Ensure specs exist for any new capabilities under `openspec/specs/`.
@@ -132,6 +136,30 @@ npm run dev
 | `siphon config-playlist <name> [<key> [<value>]]` | Get or set per-playlist config (`interval`, `auto-rename`, `watched`).                                                    |
 | `siphon playlist-items <name>`                    | List all downloaded items for a playlist.                                                                                 |
 | `siphon rename-item <playlist> <current-name> <new-name>` | Rename a downloaded item in a playlist. Renames the file on disk and sets the rename tier to `manual`.              |
+
+### Running Tests
+
+**Unit tests** (no daemon required):
+
+```bash
+pytest tests/unit/ -v
+```
+
+**End-to-end tests** require a running network connection and real YouTube URLs. Create `tests/.env` with your secrets:
+
+```bash
+export E2E_PLAYLIST_URL="https://www.youtube.com/playlist?list=..."
+export E2E_SINGLE_VIDEO_URL="https://www.youtube.com/watch?v=..."
+export E2E_MB_USER_AGENT="YourApp/1.0 (you@example.com)"
+# macOS only — fixes SSL verification for MusicBrainz lookups
+export REQUESTS_CA_BUNDLE=/opt/homebrew/etc/openssl@3/cert.pem
+```
+
+Then run (do **not** have the dev daemon running — the suite manages its own):
+
+```bash
+make -f tests/Makefile e2e
+```
 
 ## Submitting Issues
 
