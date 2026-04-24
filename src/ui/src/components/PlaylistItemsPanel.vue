@@ -85,7 +85,9 @@ function _removeListener() {
                     @keydown.enter.prevent="saveEdit(item)"
                     @keydown.escape="cancelEdit"
                   />
-                  <button class="btn-save" @mousedown.stop @click="saveEdit(item)">Save</button>
+                  <button class="btn-save" title="Save" @mousedown.stop @click="saveEdit(item)">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                  </button>
                 </span>
               </span>
             </template>
@@ -225,14 +227,16 @@ function _removeListener() {
 .rename-input:focus { outline: none; border-color: var(--accent); }
 
 .btn-save {
-  font-size: 11px;
-  padding: 2px 10px;
+  padding: 4px 7px;
   border: 1px solid var(--accent);
   border-radius: 4px;
   background: var(--accent);
   color: #fff;
   cursor: pointer;
-  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 .btn-save:hover { opacity: 0.85; }
 
