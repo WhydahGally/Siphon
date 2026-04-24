@@ -550,10 +550,12 @@ def api_put_setting(key: str, body: SettingWrite):
 
 @app.get("/version")
 def api_version():
-    try:
-        siphon_ver = importlib.metadata.version("siphon")
-    except importlib.metadata.PackageNotFoundError:
-        siphon_ver = "unknown"
+    siphon_ver = os.environ.get("SIPHON_VERSION")
+    if not siphon_ver:
+        try:
+            siphon_ver = importlib.metadata.version("siphon")
+        except importlib.metadata.PackageNotFoundError:
+            siphon_ver = "unknown"
     import yt_dlp.version as _ytv
     return {"siphon": siphon_ver, "yt_dlp": _ytv.__version__}
 

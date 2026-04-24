@@ -18,9 +18,9 @@ logger = logging.getLogger(__name__)
 @dataclass
 class RenameResult:
     original_title: str
-    final_name: str        # filename stem, no extension
-    tier: str              # "yt_metadata" | "musicbrainz" | "yt_title"
-    new_path: str          # absolute path to renamed file on disk
+    final_name: str              # filename stem, no extension
+    tier: Optional[str]          # "yt_metadata" | "musicbrainz" | "yt_title" | None (passthrough)
+    new_path: str                # absolute path to renamed file on disk
 
 # ---------------------------------------------------------------------------
 # MusicBrainz rate-limiting state
@@ -159,7 +159,7 @@ def passthrough_rename(info_dict: dict) -> Optional["RenameResult"]:
     final_name = safe_replace(yt_title) if yt_title else "unknown"
     new_path = _do_rename(filepath, final_name)
     logger.debug("renamer: passthrough rename applied")
-    return RenameResult(original_title=yt_title, final_name=final_name, tier="yt_title", new_path=new_path)
+    return RenameResult(original_title=yt_title, final_name=final_name, tier=None, new_path=new_path)
 
 
 # ---------------------------------------------------------------------------
