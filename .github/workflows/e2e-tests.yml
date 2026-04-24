@@ -6,6 +6,11 @@ on:
       - develop
       - main
   workflow_dispatch:
+    inputs:
+      pytest_filter:
+        description: 'Optional -k filter expression for pytest'
+        required: false
+        default: ''
 
 permissions:
   pull-requests: write
@@ -42,7 +47,12 @@ jobs:
         continue-on-error: true
         run: |
           set +e +o pipefail
-          pytest tests/e2e/ -v --tb=short --reruns 1 --reruns-delay 5 2>&1 | tee pytest-output.txt
+          FILTER="${{ github.event.inputs.pytest_filter }}"
+          if [ -n "$FILTER" ]; then
+            pytest tests/e2e/ -v --tb=short --reruns 1 --reruns-delay 5 -k "$FILTER" 2>&1 | tee pytest-output.txt
+          else
+            pytest tests/e2e/ -v --tb=short --reruns 1 --reruns-delay 5 2>&1 | tee pytest-output.txt
+          fi
           echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
       - name: Parse results

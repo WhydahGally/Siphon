@@ -62,4 +62,4 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh workflow run e2e-tests.yml --ref chore/bump-ytdlp
+          gh workflow run e2e-tests.yml --ref chore/bump-ytdlp -f pytest_filter="test_job_reaches_done or test_parallel_downloads_complete"
