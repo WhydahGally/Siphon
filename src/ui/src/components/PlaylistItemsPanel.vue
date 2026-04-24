@@ -160,7 +160,10 @@ function _removeListener() {
 }
 
 .item-title {
-  display: block;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-height: 26px;
   font-size: 13px;
   white-space: nowrap;
 }

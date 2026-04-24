@@ -198,7 +198,10 @@ function _removeListener() {
 }
 
 .item-title {
-  display: block;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  min-height: 26px;
   font-size: 14px;
   color: var(--text);
   white-space: nowrap;
