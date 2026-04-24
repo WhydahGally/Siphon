@@ -47,6 +47,24 @@ jobs:
           esac
           echo "version=v${major}.${minor}.${patch}" >> "$GITHUB_OUTPUT"
 
+      - name: Write version to pyproject.toml
+        run: |
+          version="${{ steps.next.outputs.version }}"
+          version="${version#v}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          sed -i "s/^version = \".*\"/version = \"${version}\"/" pyproject.toml
+          git add pyproject.toml
+          git commit -m "chore: bump version to ${version}"
+          git push origin main
+          git fetch origin develop
+          git checkout develop
+          sed -i "s/^version = \".*\"/version = \"${version}.dev0\"/" pyproject.toml
+          git add pyproject.toml
+          git commit -m "chore: bump dev version to ${version}.dev0"
+          git push origin develop
+          git checkout main
+
       - name: Create tag
         run: |
           git tag "${{ steps.next.outputs.version }}"

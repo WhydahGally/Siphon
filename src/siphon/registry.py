@@ -366,7 +366,7 @@ def list_items_for_playlist(playlist_id: str) -> list:
                uploader, channel_url, duration_secs, downloaded_at
         FROM items
         WHERE playlist_id = ?
-        ORDER BY downloaded_at ASC
+        ORDER BY downloaded_at DESC
         """,
         (playlist_id,),
     ).fetchall()
