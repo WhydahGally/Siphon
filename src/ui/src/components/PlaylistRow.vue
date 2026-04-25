@@ -21,7 +21,7 @@ const syncInfo = computed(() => props.playlist.sync_info ?? null)
 // Interval inline edit
 const editingInterval = ref(false)
 const intervalInput = ref('')
-const currentIntervalSecs = ref(props.playlist.check_interval_secs)
+const currentIntervalSecs = ref(props.playlist.check_interval_secs ?? 86400)
 const intervalEditRef = ref(null)
 const mobileIntervalEditRef = ref(null)
 let _intervalClickOutside = null
@@ -318,7 +318,7 @@ onMounted(() => {
               <input type="checkbox" :checked="watched" @change="toggleWatched" />
               <span class="slider" />
             </span>
-            <span class="autosync-text">Auto sync &mdash;
+            <span class="autosync-text">Auto sync<template v-if="watched"> &mdash;
               <span
                 v-if="!editingInterval"
                 class="interval-display"
@@ -337,7 +337,7 @@ onMounted(() => {
                   <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </button>
               </span>
-            </span>
+            </template></span>
           </label>
         </div>
       </div>
