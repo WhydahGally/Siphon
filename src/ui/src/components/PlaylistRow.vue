@@ -212,18 +212,20 @@ onMounted(() => {
           </div>
         </div>
       </div>
-      <div v-if="syncing" class="sync-indicator mobile-sync-indicator">
-        <span class="spinner" />
-        <span class="syncing-label">
-          {{ syncInfo === null ? 'Syncing…' : (syncInfo === 0 ? 'No new items found' : `${syncInfo} new item${syncInfo === 1 ? '' : 's'} found`) }}
-        </span>
-      </div>
-      <div v-else class="mobile-meta">
-        <span class="meta-item">{{ playlist.item_count }} items</span>
-        <span class="meta-sep">·</span>
-        <span class="meta-item">Added {{ formatSyncedDate(playlist.added_at) }}</span>
-        <span class="meta-sep">·</span>
-        <span class="meta-item">{{ playlist.last_synced_at ? `Synced ${formatSyncedDate(playlist.last_synced_at)}` : 'Never synced' }}</span>
+      <div class="mobile-meta-area">
+        <div v-if="syncing" class="sync-indicator mobile-sync-indicator">
+          <span class="spinner" />
+          <span class="syncing-label">
+            {{ syncInfo === null ? 'Syncing…' : (syncInfo === 0 ? 'No new items found' : `${syncInfo} new item${syncInfo === 1 ? '' : 's'} found`) }}
+          </span>
+        </div>
+        <div v-else class="mobile-meta">
+          <span class="meta-item">{{ playlist.item_count }} items</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-item">Added {{ formatSyncedDate(playlist.added_at) }}</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-item">{{ playlist.last_synced_at ? `Synced ${formatSyncedDate(playlist.last_synced_at)}` : 'Never synced' }}</span>
+        </div>
       </div>
       <div class="mobile-controls">
         <label class="toggle-label">
@@ -749,6 +751,16 @@ onMounted(() => {
 
   .mobile-sync-indicator {
     padding-top: 0;
+  }
+
+  .mobile-meta-area {
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+  }
+
+  .mobile-meta-area > * {
+    width: 100%;
   }
 
   .mobile-meta {
