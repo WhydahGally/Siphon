@@ -868,9 +868,9 @@ code {
 .sb-chips {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  gap: 8px 64px;
   padding: 4px 0 8px;
-  max-width: 360px;
+  max-width: 420px;
   margin: 0 auto;
 }
 
