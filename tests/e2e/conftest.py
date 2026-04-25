@@ -52,7 +52,7 @@ def require_env(name: str) -> str:
     return value
 
 
-def poll_job_terminal(http: requests.Session, base_url: str, job_id: str, timeout: int = 300) -> dict:
+def poll_job_terminal(http: requests.Session, base_url: str, job_id: str, timeout: int = 90) -> dict:
     """Poll GET /jobs until the given job reaches a fully terminal state (all items done/failed/cancelled)."""
     deadline = time.time() + timeout
     while time.time() < deadline:
@@ -68,7 +68,7 @@ def poll_job_terminal(http: requests.Session, base_url: str, job_id: str, timeou
     pytest.fail(f"Job {job_id} did not reach terminal state within {timeout}s")
 
 
-def poll_items_stable(http: requests.Session, base_url: str, playlist_id: str, min_count: int = 1, timeout: int = 300) -> list:
+def poll_items_stable(http: requests.Session, base_url: str, playlist_id: str, min_count: int = 1, timeout: int = 90) -> list:
     """
     Poll GET /playlists/{id}/items until the item count reaches min_count AND
     stabilises (same count on two consecutive polls separated by 3 s).
