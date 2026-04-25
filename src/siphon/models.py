@@ -25,7 +25,7 @@ class FailureRecord:
 class ItemRecord:
     video_id: str
     playlist_id: Optional[str]
-    yt_title: str
+    title: str
     renamed_to: Optional[str]       # final filename stem, no extension
     rename_tier: Optional[str]      # tier from RenameResult
     uploader: Optional[str]
@@ -36,7 +36,7 @@ class ItemRecord:
 @dataclass
 class JobItem:
     video_id: str
-    yt_title: str
+    title: str
     url: str
     state: str  # "pending" | "downloading" | "done" | "failed"
     renamed_to: Optional[str] = None

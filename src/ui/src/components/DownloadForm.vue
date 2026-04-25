@@ -123,7 +123,7 @@ async function handleDownload() {
       <input
         v-model="url"
         class="url-input"
-        placeholder="YouTube playlist or video URL"
+        placeholder="Playlist or video URL"
         :disabled="loading"
         @keydown.enter="handleDownload"
       />

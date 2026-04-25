@@ -220,6 +220,7 @@ onMounted(() => {
           </span>
         </div>
         <div v-else class="mobile-meta">
+          <span v-if="playlist.platform" class="platform-badge">{{ playlist.platform }}</span>
           <span class="meta-item">{{ playlist.item_count }} items</span>
           <span class="meta-sep">·</span>
           <span class="meta-item">Added {{ formatSyncedDate(playlist.added_at) }}</span>
@@ -287,6 +288,7 @@ onMounted(() => {
       <div class="row-right">
         <div class="row-meta-slot">
           <div class="row-meta-line" :style="{ visibility: syncing ? 'hidden' : 'visible' }">
+            <span v-if="playlist.platform" class="platform-badge">{{ playlist.platform }}</span>
             <span class="meta-item">{{ playlist.item_count }} items</span>
             <span class="meta-sep">·</span>
             <span class="meta-item">Added {{ formatSyncedDate(playlist.added_at) }}</span>
@@ -514,6 +516,16 @@ onMounted(() => {
 .meta-item {
   font-size: 12px;
   color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.platform-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-hover, rgba(128,128,128,0.12));
+  border-radius: 4px;
+  padding: 1px 6px;
   white-space: nowrap;
 }
 

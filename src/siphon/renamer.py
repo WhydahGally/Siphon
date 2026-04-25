@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 class RenameResult:
     original_title: str
     final_name: str              # filename stem, no extension
-    tier: Optional[str]          # "yt_metadata" | "musicbrainz" | "yt_title" | None (passthrough)
+    tier: Optional[str]          # "metadata" | "musicbrainz" | "title" | None (passthrough)
     new_path: str                # absolute path to renamed file on disk
 
 # ---------------------------------------------------------------------------
@@ -84,10 +84,10 @@ def rename_file(
     Rename the downloaded file to 'Artist - Track.ext'.
 
     Three-tier resolution chain:
-      1.  YouTube metadata    — info_dict['artist'] + info_dict['track'] if both present.
+      1.  Embedded metadata    — info_dict['artist'] + info_dict['track'] if both present.
       2.  MusicBrainz         — free-text search if mb_user_agent is configured;
                                 validated via phrase-match against title and uploader.
-      3.  YT title fallback   — noise-stripped, sanitized info_dict['title'].
+      3.  Title fallback       — noise-stripped, sanitized info_dict['title'].
 
     Noise stripping is applied before the MB query and to the final name at every tier.
     Returns a RenameResult on success, or None if no filepath was found.
@@ -101,15 +101,15 @@ def rename_file(
     yt_title = (info_dict.get("title") or "").strip()
     uploader = (info_dict.get("uploader") or info_dict.get("channel") or "").strip()
 
-    # Tier 1: YouTube music catalog metadata
+    # Tier 1: Embedded metadata (artist + track fields provided by the platform)
     artist = (info_dict.get("artist") or "").strip()
     track = (info_dict.get("track") or "").strip()
     if artist and track:
         artist = _resolve_primary_artist(artist, info_dict)
         final_name = strip_noise(f"{artist} - {track}", noise_patterns)
         new_path = _do_rename(filepath, final_name)
-        logger.debug("renamer: tier 1 resolved via YT metadata")
-        return RenameResult(original_title=yt_title, final_name=final_name, tier="yt_metadata", new_path=new_path)
+        logger.debug("renamer: tier 1 resolved via embedded metadata")
+        return RenameResult(original_title=yt_title, final_name=final_name, tier="metadata", new_path=new_path)
 
     # Tier 2: MusicBrainz lookup
     cleaned_title = strip_noise(yt_title, noise_patterns)
@@ -129,7 +129,7 @@ def rename_file(
     else:
         logger.debug("renamer: mb_user_agent not configured, skipping tier 2")
 
-    # Tier 3: YT title fallback
+    # Tier 3: Title fallback
     if cleaned_title:
         sep_result = _try_separator_split(cleaned_title)
         if sep_result:
@@ -140,8 +140,8 @@ def rename_file(
     else:
         final_name = "unknown"
     new_path = _do_rename(filepath, final_name)
-    logger.debug("renamer: tier 3 fallback to YT title")
-    return RenameResult(original_title=yt_title, final_name=final_name, tier="yt_title", new_path=new_path)
+    logger.debug("renamer: tier 3 fallback to title")
+    return RenameResult(original_title=yt_title, final_name=final_name, tier="title", new_path=new_path)
 
 
 def passthrough_rename(info_dict: dict) -> Optional["RenameResult"]:

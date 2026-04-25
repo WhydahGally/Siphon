@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import logging
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -64,12 +65,13 @@ def _resolve_output_dir(output_dir: str) -> str:
     return os.path.abspath(output_dir)
 
 
-def _normalise_youtube_url(url: str) -> str:
+def _normalise_url(url: str) -> str:
     """
     If the URL contains a YouTube list= param, return a clean playlist URL
     (https://www.youtube.com/playlist?list=LIST_ID), discarding any v= param.
     This avoids yt-dlp treating the URL as a single-video context and only
     returning one entry instead of the full playlist.
+    For non-YouTube URLs, the URL is returned unchanged.
     """
     from urllib.parse import urlparse, parse_qs
     parsed = urlparse(url)
@@ -81,6 +83,19 @@ def _normalise_youtube_url(url: str) -> str:
         # Has both v= and list= — normalise to clean playlist URL
         return f"https://www.youtube.com/playlist?list={list_id}"
     return url
+
+
+_EXTRACTOR_SUFFIXES = re.compile(
+    r'(?:Tab|Playlist|Channel|Album|User|Search|Feed|Tag|IE)$'
+)
+
+
+def sanitize_platform(extractor_key: str) -> str:
+    """Strip yt-dlp internal suffixes from extractor_key for human-readable display.
+
+    Examples: 'YoutubeTab' → 'Youtube', 'BandcampAlbum' → 'Bandcamp'.
+    """
+    return _EXTRACTOR_SUFFIXES.sub('', extractor_key).strip() or extractor_key
 
 
 def _fetch_playlist_info(url: str) -> dict:
@@ -229,16 +244,18 @@ async def _log_requests(request, call_next):
 
 @app.post("/playlists", status_code=201)
 def api_add_playlist(body: PlaylistCreate):
-    url = _normalise_youtube_url(body.url)
+    url = _normalise_url(body.url)
     output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
 
-    logger.info("Fetching playlist info from YouTube…")
+    logger.info("Fetching playlist info…")
     info = _fetch_playlist_info(url)
     playlist_id = info.get("id") or info.get("playlist_id")
     playlist_name = info.get("title") or info.get("playlist_title")
 
     if not playlist_id or not playlist_name:
-        raise HTTPException(status_code=422, detail="Could not retrieve playlist ID or title from YouTube.")
+        raise HTTPException(status_code=422, detail="Could not retrieve playlist ID or title.")
+
+    platform = sanitize_platform(info.get("extractor_key", "")) or None
 
     try:
         registry.add_playlist(
@@ -251,6 +268,7 @@ def api_add_playlist(body: PlaylistCreate):
             auto_rename=body.auto_rename,
             watched=body.watched,
             check_interval_secs=body.check_interval_secs,
+            platform=platform,
         )
     except ValueError:
         raise HTTPException(status_code=409, detail="Playlist already registered.")
@@ -456,7 +474,7 @@ def api_rename_playlist_item(playlist_id: str, video_id: str, body: RenameReques
     safe_folder = sanitize_name(playlist["name"]) or playlist_id
     item_dir = os.path.join(output_dir, safe_folder)
 
-    old_stem = item["renamed_to"] or item["yt_title"]
+    old_stem = item["renamed_to"] or item["title"]
     old_path = resolve_file_path(item_dir, old_stem)
     if old_path is None:
         raise HTTPException(status_code=404, detail=f"File not found on disk for '{old_stem}'.")
@@ -585,7 +603,7 @@ def api_health():
 
 @app.post("/jobs", status_code=202)
 def api_create_job(body: JobCreate):
-    url = _normalise_youtube_url(body.url)
+    url = _normalise_url(body.url)
     output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
 
     try:
@@ -603,7 +621,9 @@ def api_create_job(body: JobCreate):
         playlist_id = info.get("id") or info.get("playlist_id")
         playlist_name = info.get("title") or info.get("playlist_title")
         if not playlist_id or not playlist_name:
-            raise HTTPException(status_code=422, detail="Could not retrieve playlist ID or title from YouTube.")
+            raise HTTPException(status_code=422, detail="Could not retrieve playlist ID or title.")
+
+        platform = sanitize_platform(info.get("extractor_key", "")) or None
 
         try:
             registry.add_playlist(
@@ -616,6 +636,7 @@ def api_create_job(body: JobCreate):
                 auto_rename=body.auto_rename,
                 watched=body.watched,
                 check_interval_secs=body.check_interval_secs,
+                platform=platform,
             )
             existing_playlist = False
         except ValueError:
@@ -715,7 +736,7 @@ async def api_stream_job(job_id: str):
                             "job_id": job_id,
                             "video_id": item.video_id,
                             "state": item.state,
-                            "yt_title": item.yt_title,
+                            "title": item.title,
                             "renamed_to": item.renamed_to,
                             "error": item.error,
                         })
@@ -791,7 +812,7 @@ def api_rename_job_item(job_id: str, video_id: str, body: RenameRequest):
     else:
         item_dir = _resolve_output_dir(job.output_dir or _DEFAULT_OUTPUT_DIR)
 
-    old_stem = item.renamed_to or item.yt_title
+    old_stem = item.renamed_to or item.title
     old_path = resolve_file_path(item_dir, old_stem)
     if old_path is None:
         raise HTTPException(status_code=404, detail=f"File not found on disk for '{old_stem}'.")
@@ -813,7 +834,7 @@ def api_rename_job_item(job_id: str, video_id: str, body: RenameRequest):
 
     return {
         "video_id": item.video_id,
-        "yt_title": item.yt_title,
+        "title": item.title,
         "renamed_to": item.renamed_to,
         "rename_tier": item.rename_tier,
         "state": item.state,
@@ -905,7 +926,7 @@ def _job_to_dict(job: DownloadJob) -> dict:
         "items": [
             {
                 "video_id": item.video_id,
-                "yt_title": item.yt_title,
+                "title": item.title,
                 "state": item.state,
                 "renamed_to": item.renamed_to,
                 "rename_tier": item.rename_tier,
