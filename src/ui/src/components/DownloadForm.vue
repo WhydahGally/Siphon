@@ -183,38 +183,35 @@ async function handleDownload() {
         >⚠</span>
       </label>
 
-      <!-- Auto sync (playlist only) -->
+      <!-- Auto sync (playlist only) — interval is inline -->
       <label v-if="isPlaylist" class="toggle-label">
         <span class="toggle-switch">
           <input v-model="autoSync" type="checkbox" :disabled="loading" />
           <span class="slider" />
         </span>
-        <span>Auto sync</span>
-      </label>
-
-      <!-- Interval (playlist + autoSync only) -->
-      <div v-if="isPlaylist && autoSync" ref="intervalEditRef" class="interval-group">
-        <template v-if="!editingInterval">
-          <span class="interval-display" @click="openIntervalEdit">
+        <span>Auto sync<template v-if="autoSync"> &mdash;
+          <span v-if="!editingInterval" class="interval-display" @click.stop.prevent="openIntervalEdit">
             {{ intervalDisplay }}
             <svg class="pencil-icon" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
               <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
             </svg>
           </span>
-        </template>
-        <template v-else>
-          <input
-            v-model="intervalInput"
-            class="interval-input"
-            placeholder="DD:HH:MM:SS"
-            title="Format - DD:HH:MM:SS"
-            @keydown.enter.prevent="saveInterval"
-            @keydown.escape="cancelIntervalEdit"
-          />
-          <button class="btn-save" @mousedown.stop @click="saveInterval">Save</button>
-        </template>
-      </div>
+          <span v-else ref="intervalEditRef" class="interval-edit-group" @click.stop>
+            <input
+              v-model="intervalInput"
+              class="interval-input"
+              placeholder="DD:HH:MM:SS"
+              title="Format - DD:HH:MM:SS"
+              @keydown.enter.prevent="saveInterval"
+              @keydown.escape="cancelIntervalEdit"
+            />
+            <button class="btn-save" title="Save" @mousedown.stop @click="saveInterval">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+          </span>
+        </template></span>
+      </label>
     </div>
 
   </section>
@@ -348,6 +345,7 @@ async function handleDownload() {
   cursor: pointer;
   user-select: none;
   font-size: 14px;
+  min-height: 28px;
 }
 
 .toggle-switch {
@@ -398,19 +396,19 @@ async function handleDownload() {
   cursor: help;
 }
 
-.interval-group {
-  display: flex;
+.interval-edit-group {
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
 }
 
 .interval-display {
-  font-size: 13px;
   color: var(--text-muted);
   cursor: pointer;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 5px;
+  vertical-align: middle;
 }
 .interval-display:hover { color: var(--text); }
 
@@ -430,13 +428,14 @@ async function handleDownload() {
 
 .btn-save {
   border-radius: var(--radius-sm);
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 500;
+  padding: 4px 7px;
   background: var(--accent);
   border: 1px solid var(--accent);
   color: #fff;
-  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 .btn-save:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 
@@ -452,5 +451,30 @@ async function handleDownload() {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+@media (max-width: 640px) {
+  .download-form {
+    padding: 16px;
+  }
+
+  .btn-primary {
+    min-width: unset;
+    padding: 9px 14px;
+  }
+
+  .controls-row {
+    justify-content: space-between;
+  }
+
+  .toggles-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .interval-input {
+    width: 110px;
+  }
 }
 </style>

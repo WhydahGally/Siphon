@@ -78,9 +78,15 @@ Archive a completed change in the experimental workflow.
    - If yes: Fail with error, suggest renaming existing archive or using different date
    - If no: Move the change directory to archive
 
+   Use `git mv` to move the directory (preserves git history), then immediately clear any stale index entries at the source path, and explicitly delete the source folder if it still exists:
+
    ```bash
-   mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
+   git mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
+   git reset HEAD openspec/changes/<name>
+   rm -rf openspec/changes/<name>
    ```
+
+   **Verify the source is gone** by checking that `openspec/changes/<name>/` no longer exists. If it still exists after these steps, fail with an error and do not proceed.
 
 6. **Display summary**
 

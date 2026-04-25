@@ -1,6 +1,18 @@
 <script setup>
-defineProps({ currentPage: String })
+import { ref } from 'vue'
+
+const props = defineProps({ currentPage: String })
 const emit = defineEmits(['navigate'])
+
+const sidebarOpen = ref(false)
+
+function openSidebar() { sidebarOpen.value = true }
+function closeSidebar() { sidebarOpen.value = false }
+
+function navigate(page) {
+  emit('navigate', page)
+  closeSidebar()
+}
 </script>
 
 <template>
@@ -14,6 +26,7 @@ const emit = defineEmits(['navigate'])
       Siphon
     </span>
 
+    <!-- Desktop: centre nav buttons -->
     <div class="nav-center">
       <button
         v-for="page in ['dashboard', 'library']"
@@ -26,6 +39,7 @@ const emit = defineEmits(['navigate'])
       </button>
     </div>
 
+    <!-- Desktop: settings icon -->
     <button
       class="settings-btn"
       :class="{ active: currentPage === 'settings' }"
@@ -37,7 +51,42 @@ const emit = defineEmits(['navigate'])
         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
       </svg>
     </button>
+
+    <!-- Mobile: hamburger / close button -->
+    <button
+      class="hamburger-btn"
+      :aria-label="sidebarOpen ? 'Close menu' : 'Open menu'"
+      @click="sidebarOpen ? closeSidebar() : openSidebar()"
+    >
+      <svg v-if="!sidebarOpen" xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="3" y1="6" x2="21" y2="6"/>
+        <line x1="3" y1="12" x2="21" y2="12"/>
+        <line x1="3" y1="18" x2="21" y2="18"/>
+      </svg>
+      <svg v-else xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="6" x2="6" y2="18"/>
+        <line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
   </nav>
+
+  <Teleport to="body">
+    <transition name="sidebar">
+      <div v-if="sidebarOpen" class="sidebar-overlay" @click.self="closeSidebar">
+        <div class="sidebar-panel">
+          <button
+            v-for="page in ['dashboard', 'library', 'settings']"
+            :key="page"
+            class="sidebar-nav-btn"
+            :class="{ active: currentPage === page }"
+            @click="navigate(page)"
+          >
+            {{ page.charAt(0).toUpperCase() + page.slice(1) }}
+          </button>
+        </div>
+      </div>
+    </transition>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -51,7 +100,7 @@ const emit = defineEmits(['navigate'])
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
-  z-index: 10;
+  z-index: 110;
 }
 
 .logo {
@@ -137,5 +186,93 @@ const emit = defineEmits(['navigate'])
 
 .settings-btn.active {
   color: var(--accent);
+}
+
+/* Mobile: hamburger button (hidden on desktop) */
+.hamburger-btn {
+  display: none;
+  justify-self: end;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s, background 0.15s;
+}
+.hamburger-btn:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+/* Sidebar overlay */
+.sidebar-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sidebar-panel {
+  width: 220px;
+  height: 100%;
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 72px 16px 24px;
+  gap: 4px;
+}
+
+.sidebar-nav-btn {
+  background: none;
+  border: none;
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
+  transition: color 0.15s, background 0.15s;
+}
+.sidebar-nav-btn:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+.sidebar-nav-btn.active {
+  color: var(--accent);
+  background: var(--surface-2);
+}
+
+/* Sidebar slide-in/out transition */
+.sidebar-enter-active,
+.sidebar-leave-active {
+  transition: opacity 0.2s ease;
+}
+.sidebar-enter-active .sidebar-panel,
+.sidebar-leave-active .sidebar-panel {
+  transition: transform 0.25s ease;
+}
+.sidebar-enter-from,
+.sidebar-leave-to {
+  opacity: 0;
+}
+.sidebar-enter-from .sidebar-panel,
+.sidebar-leave-to .sidebar-panel {
+  transform: translateX(100%);
+}
+
+/* Mobile breakpoint */
+@media (max-width: 640px) {
+  .navbar {
+    grid-template-columns: 1fr auto;
+  }
+
+  .nav-center { display: none; }
+  .settings-btn { display: none; }
+  .hamburger-btn { display: flex; }
 }
 </style>
