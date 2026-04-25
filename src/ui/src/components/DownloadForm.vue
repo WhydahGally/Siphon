@@ -403,7 +403,6 @@ async function handleDownload() {
 }
 
 .interval-display {
-  font-size: 13px;
   color: var(--text-muted);
   cursor: pointer;
   display: inline-flex;
