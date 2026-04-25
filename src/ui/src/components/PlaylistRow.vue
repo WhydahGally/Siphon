@@ -154,7 +154,7 @@ function formatDate(iso) {
 function formatSyncedDate(iso) {
   if (!iso) return 'never synced'
   const diffMs = new Date() - new Date(iso)
-  if (diffMs < 60000) return 'less than a minute ago'
+  if (diffMs < 60000) return 'now'
   if (diffMs < 3600000) return `${Math.floor(diffMs / 60000)}m ago`
   if (diffMs < 86400000) return `${Math.floor(diffMs / 3600000)}h ago`
   return formatDate(iso)
