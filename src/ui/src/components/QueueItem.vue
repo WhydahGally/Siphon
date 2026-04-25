@@ -8,13 +8,24 @@ const props = defineProps({
   autoRename: { type: Boolean, default: false },
 })
 
+const TIER_LABELS = {
+  metadata: 'Metadata',
+  musicbrainz: 'MusicBrainz',
+  title: 'Title',
+  manual: 'Manual',
+}
+
+function tierLabel(tier) {
+  return TIER_LABELS[tier] ?? tier
+}
+
 const editing = ref(false)
 const editInput = ref('')
 let _clickOutside = null
 
 function openEdit() {
   editing.value = true
-  editInput.value = props.item.renamed_to || props.item.yt_title
+  editInput.value = props.item.renamed_to || props.item.title
   nextTick(() => {
     const el = document.querySelector(`.queue-item.done .rename-input[data-vid="${props.item.video_id}"]`)
     el?.focus()
@@ -31,7 +42,7 @@ async function saveEdit() {
   _removeListener()
   const newName = editInput.value.trim()
   if (!newName) { cancelEdit(); return }
-  if (newName === (props.item.renamed_to || props.item.yt_title)) { cancelEdit(); return }
+  if (newName === (props.item.renamed_to || props.item.title)) { cancelEdit(); return }
 
   const url = `/jobs/${props.jobId}/items/${props.item.video_id}/rename`
 
@@ -76,7 +87,7 @@ function _removeListener() {
       <!-- Edit mode (done items only) -->
       <template v-if="item.state === 'done' && editing">
         <span class="item-title">
-          <span class="original-title">{{ item.yt_title }}</span>
+          <span class="original-title">{{ item.title }}</span>
           <span class="arrow"> → </span>
           <span class="rename-edit-wrapper" :data-vid="item.video_id">
             <input
@@ -95,23 +106,23 @@ function _removeListener() {
       <!-- Display mode -->
       <template v-else>
         <span v-if="item.state === 'done' && item.renamed_to && (autoRename || item.rename_tier === 'manual')" class="item-title">
-          <span class="original-title">{{ item.yt_title }}</span>
+          <span class="original-title">{{ item.title }}</span>
           <span class="arrow"> → </span>
           <span class="renamed-title">{{ item.renamed_to }}</span>
-          <span v-if="(autoRename || item.rename_tier === 'manual') && item.rename_tier" class="tier-badge">{{ item.rename_tier }}</span>
+          <span v-if="(autoRename || item.rename_tier === 'manual') && item.rename_tier" class="tier-badge">{{ tierLabel(item.rename_tier) }}</span>
           <svg class="pencil-icon" @click.stop="openEdit" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
           </svg>
         </span>
         <span v-else-if="item.state === 'done'" class="item-title">
-          {{ item.yt_title }}
+          {{ item.title }}
           <svg class="pencil-icon" @click.stop="openEdit" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
           </svg>
         </span>
-        <span v-else class="item-title">{{ item.yt_title }}</span>
+        <span v-else class="item-title">{{ item.title }}</span>
       </template>
 
       <span v-if="item.state === 'failed' && item.error" class="item-error">{{ item.error }}</span>

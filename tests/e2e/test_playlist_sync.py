@@ -6,7 +6,7 @@ Covers:
   - POST /playlists with duplicate URL returns 409             (fast)
   - POST /playlists/{id}/sync populates items                 (@slow — metadata)
   - Syncing twice produces no duplicate items                 (@slow — metadata)
-  - Each item has non-empty video_id and yt_title             (@slow — metadata)
+  - Each item has non-empty video_id and title             (@slow — metadata)
   - Parallel downloads (concurrency > 1) complete with no failures (@slow)
   - auto_rename=False leaves rename_tier unset                (@slow)
   - DELETE /playlists/{id} returns 204 and GET returns 404    (fast)
@@ -126,14 +126,14 @@ def test_sync_no_duplicates(http, base_url, playlist):
 @pytest.mark.e2e
 @pytest.mark.slow
 def test_items_have_required_fields(http, base_url, playlist):
-    """Every synced item has a non-empty video_id and yt_title."""
+    """Every synced item has a non-empty video_id and title."""
     items = http.get(f"{base_url}/playlists/{playlist['id']}/items").json()
     if not items:
         pytest.skip("No items yet — run sync first")
 
     for item in items:
         assert item.get("video_id"), f"Item missing video_id: {item}"
-        assert item.get("yt_title"), f"Item missing yt_title: {item}"
+        assert item.get("title"), f"Item missing title: {item}"
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +149,7 @@ def test_parallel_downloads_complete(raw_job):
 
     assert len(done) >= 1, "No items completed with parallel downloads"
     assert len(failed) == 0, (
-        f"Items failed under parallel downloads: {[(i['yt_title'], i.get('error')) for i in failed]}"
+        f"Items failed under parallel downloads: {[(i['title'], i.get('error')) for i in failed]}"
     )
 
 

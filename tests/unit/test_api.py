@@ -1,35 +1,35 @@
 """Tests for siphon.api — pure helpers and FastAPI routes via TestClient."""
 import pytest
 
-from siphon.api import _normalise_youtube_url
+from siphon.api import _normalise_url
 
 
 # ---------------------------------------------------------------------------
-# _normalise_youtube_url (pure helper — no client needed)
+# _normalise_url (pure helper — no client needed)
 # ---------------------------------------------------------------------------
 
-class TestNormaliseYoutubeUrl:
+class TestNormaliseUrl:
     def test_mixed_v_and_list_normalised_to_playlist(self):
         url = "https://www.youtube.com/watch?v=abc123&list=PLxyz"
-        result = _normalise_youtube_url(url)
+        result = _normalise_url(url)
         assert result == "https://www.youtube.com/playlist?list=PLxyz"
         assert "v=" not in result
 
     def test_pure_playlist_url_unchanged(self):
         url = "https://www.youtube.com/playlist?list=PLxyz"
-        assert _normalise_youtube_url(url) == url
+        assert _normalise_url(url) == url
 
     def test_single_video_url_unchanged(self):
         url = "https://www.youtube.com/watch?v=abc123"
-        assert _normalise_youtube_url(url) == url
+        assert _normalise_url(url) == url
 
     def test_non_youtube_url_unchanged(self):
         url = "https://vimeo.com/123456"
-        assert _normalise_youtube_url(url) == url
+        assert _normalise_url(url) == url
 
     def test_youtube_com_without_www(self):
         url = "https://youtube.com/watch?v=abc&list=PLxyz"
-        result = _normalise_youtube_url(url)
+        result = _normalise_url(url)
         assert result == "https://www.youtube.com/playlist?list=PLxyz"
 
 
@@ -90,7 +90,7 @@ class TestPostPlaylistValidation:
         fake_info = {"id": "PLxyz", "title": "My Playlist"}
         with (
             patch("siphon.api._fetch_playlist_info", return_value=fake_info),
-            patch("siphon.api._normalise_youtube_url", side_effect=lambda u: u),
+            patch("siphon.api._normalise_url", side_effect=lambda u: u),
         ):
             resp = api_client.post(
                 "/playlists",

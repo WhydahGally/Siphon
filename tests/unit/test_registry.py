@@ -90,7 +90,7 @@ def _make_record(video_id="vid-1", yt_title="Song"):
     return ItemRecord(
         video_id=video_id,
         playlist_id="pl-1",
-        yt_title=yt_title,
+        title=yt_title,
         renamed_to=None,
         rename_tier=None,
         uploader=None,
@@ -106,7 +106,7 @@ class TestItemCRUD:
         registry.insert_item(record, "pl-1")
         item = registry.get_item("vid-1", "pl-1")
         assert item is not None
-        assert item["yt_title"] == "Song"
+        assert item["title"] == "Song"
 
     def test_insert_idempotent(self, db):
         _add_pl()

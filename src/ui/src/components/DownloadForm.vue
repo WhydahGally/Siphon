@@ -59,7 +59,17 @@ const VIDEO_FORMATS = ['mp4', 'mkv', 'webm']
 const QUALITY_OPTIONS = ['best', '2160', '1080', '720', '480', '360']
 
 const isAudio = computed(() => AUDIO_FORMATS.includes(format.value))
-const isPlaylist = computed(() => url.value.includes('list='))
+
+// Playlist URL detection — patterns fetched from the daemon (derived from yt-dlp
+// extractor _VALID_URL regexes) so they stay in sync with yt-dlp automatically.
+// Hardcoded regexes are used as a fallback if the fetch fails.
+const _FALLBACK_PATH_RE = /\/(?:playlists?|albums?|channels?|sets|series|collections?|lists?|medialist|favlist|feed|users?)\//i
+const _FALLBACK_PARAM_RE = /[?&](?:list|playlist|playlistid|album|channel|series|user)=/i
+const _playlistPathRe = ref(_FALLBACK_PATH_RE)
+const _playlistParamRe = ref(_FALLBACK_PARAM_RE)
+const isPlaylist = computed(() =>
+  _playlistPathRe.value.test(url.value) || _playlistParamRe.value.test(url.value)
+)
 
 onMounted(async () => {
   try {
@@ -68,6 +78,20 @@ onMounted(async () => {
     mbUserAgentMissing.value = !data.value
   } catch {
     // daemon not reachable yet — don't crash
+  }
+  try {
+    const res = await fetch('/playlist-patterns')
+    if (res.ok) {
+      const { path_segments, query_params } = await res.json()
+      if (path_segments?.length) {
+        _playlistPathRe.value = new RegExp(`\\/(?:${path_segments.join('|')})\\/`, 'i')
+      }
+      if (query_params?.length) {
+        _playlistParamRe.value = new RegExp(`[?&](?:${query_params.join('|')})=`, 'i')
+      }
+    }
+  } catch {
+    // fallback regexes remain active
   }
 })
 
@@ -123,7 +147,7 @@ async function handleDownload() {
       <input
         v-model="url"
         class="url-input"
-        placeholder="YouTube playlist or video URL"
+        placeholder="Playlist or video URL"
         :disabled="loading"
         @keydown.enter="handleDownload"
       />

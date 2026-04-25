@@ -1,8 +1,8 @@
 # Siphon
 
-A self-hosted YT playlist downloader & watcher that automatically downloads new additions on a schedule. Built to address shortcomings found in tools like [MeTube](https://github.com/alexta69/metube).
+A self-hosted playlist downloader & watcher that automatically downloads new additions on a schedule. Built to address shortcomings found in tools like [MeTube](https://github.com/alexta69/metube).
 
-Siphon uses [YT-DLP](https://github.com/yt-dlp/yt-dlp) and runs as a daemon with a web UI — register your playlists, set a schedule, and forget about it. New tracks show up in your library automatically.
+Siphon uses [YT-DLP](https://github.com/yt-dlp/yt-dlp) and runs as a daemon with a web UI — register your playlists, set a schedule, and forget about it. New tracks show up in your library automatically. Any platform supported by yt-dlp works, though Siphon is built and tested with a focus on YouTube.
 
 Siphon is primarily developed using spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec/tree/main). Every feature starts as a specification before a single line of code is written. This is not vibe coding — there are actual specs, actual designs, and actual task lists. Revolutionary, right?
 
@@ -11,9 +11,9 @@ Siphon is primarily developed using spec-driven development through [OpenSpec](h
 - **Download** — Download entire playlists or single videos.
 - **Format selection** — Download audio (MP3, OPUS) or video formats (MP4, MKV, WEBM) with quality options.
 - **Parallel downloads** — Configurable concurrent downloads (1–10 workers).
-- **Playlist watching** — Monitors YouTube playlists and auto-downloads newly added videos.
+- **Playlist watching** — Monitors playlists and auto-downloads newly added videos.
 - **Scheduled syncing** — Configurable per-playlist sync intervals (hourly, daily, whatever you want).
-- **Smart auto-renaming** — Cleans up filenames and titles using YT metadata and MusicBrainz lookups.
+- **Smart auto-renaming** — Cleans up filenames and titles using embedded metadata and MusicBrainz lookups.
 - **Manual renaming** — Manually rename individual downloaded items from the Web UI or CLI. Changes are applied on disk and in metadata.
 - **Audio metadata embedding** — Embeds artist, title, album and cover art into audio files.
 - **Web UI** — Manage playlists, view download history, configure settings and monitor progress from your browser.
@@ -145,7 +145,7 @@ npm run dev
 pytest tests/unit/ -v
 ```
 
-**End-to-end tests** require a running network connection and real YouTube URLs. Create `tests/.env` with your secrets:
+**End-to-end tests** require a running network connection and real URLs. Create `tests/.env` with your secrets:
 
 ```bash
 export E2E_PLAYLIST_URL="https://www.youtube.com/playlist?list=..."

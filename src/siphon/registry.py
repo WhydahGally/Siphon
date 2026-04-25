@@ -36,13 +36,14 @@ CREATE TABLE IF NOT EXISTS playlists (
     watched             INTEGER NOT NULL DEFAULT 1,
     check_interval_secs INTEGER,
     added_at            TEXT NOT NULL,
-    last_synced_at      TEXT
+    last_synced_at      TEXT,
+    platform            TEXT
 );
 
 CREATE TABLE IF NOT EXISTS items (
     video_id       TEXT NOT NULL,
     playlist_id    TEXT NOT NULL REFERENCES playlists(id),
-    yt_title       TEXT NOT NULL,
+    title          TEXT NOT NULL,
     renamed_to     TEXT,
     rename_tier    TEXT,
     uploader       TEXT,
@@ -60,7 +61,7 @@ CREATE TABLE IF NOT EXISTS settings (
 CREATE TABLE IF NOT EXISTS failed_downloads (
     video_id         TEXT NOT NULL,
     playlist_id      TEXT NOT NULL,
-    yt_title         TEXT NOT NULL,
+    title            TEXT NOT NULL,
     url              TEXT NOT NULL,
     error_message    TEXT,
     attempt_count    INTEGER NOT NULL DEFAULT 1,
@@ -99,20 +100,6 @@ def init_db(data_dir: str) -> None:
     # WAL mode: allows concurrent readers, serialises writers internally.
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(_SCHEMA)
-    # Migrate existing DBs: add columns/tables introduced after initial schema.
-    for stmt in (
-        "ALTER TABLE playlists ADD COLUMN format TEXT NOT NULL DEFAULT 'mp3'",
-        "ALTER TABLE playlists ADD COLUMN quality TEXT NOT NULL DEFAULT 'best'",
-        "ALTER TABLE playlists ADD COLUMN output_dir TEXT NOT NULL DEFAULT ''",
-        "ALTER TABLE playlists ADD COLUMN auto_rename INTEGER NOT NULL DEFAULT 0",
-        "ALTER TABLE playlists ADD COLUMN watched INTEGER NOT NULL DEFAULT 1",
-        "ALTER TABLE playlists ADD COLUMN check_interval_secs INTEGER",
-    ):
-        try:
-            conn.execute(stmt)
-            logger.debug("Running migration: %s", stmt)
-        except sqlite3.OperationalError:
-            logger.debug("Migration already applied: %s", stmt.split("ADD COLUMN ")[1].split()[0] if "ADD COLUMN" in stmt else stmt)
     conn.commit()
     # Store as the calling thread's connection.
     _local.conn = conn
@@ -180,6 +167,7 @@ def add_playlist(
     auto_rename: bool = False,
     watched: bool = True,
     check_interval_secs: Optional[int] = None,
+    platform: Optional[str] = None,
 ) -> None:
     """Insert a new playlist. Raises ValueError if the playlist ID already exists."""
     conn = _get_conn()
@@ -189,8 +177,8 @@ def add_playlist(
     if existing:
         raise ValueError(f"Playlist '{playlist_id}' is already registered.")
     conn.execute(
-        "INSERT INTO playlists (id, name, url, format, quality, output_dir, auto_rename, watched, check_interval_secs, added_at, last_synced_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)",
-        (playlist_id, name, url, fmt, quality, output_dir, int(auto_rename), int(watched), check_interval_secs, _now()),
+        "INSERT INTO playlists (id, name, url, format, quality, output_dir, auto_rename, watched, check_interval_secs, added_at, last_synced_at, platform) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
+        (playlist_id, name, url, fmt, quality, output_dir, int(auto_rename), int(watched), check_interval_secs, _now(), platform),
     )
     conn.commit()
 
@@ -297,14 +285,14 @@ def insert_item(record: ItemRecord, playlist_id: str) -> None:
         conn.execute(
             """
             INSERT OR IGNORE INTO items
-                (video_id, playlist_id, yt_title, renamed_to, rename_tier,
+                (video_id, playlist_id, title, renamed_to, rename_tier,
                  uploader, channel_url, duration_secs, downloaded_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 record.video_id,
                 playlist_id,
-                record.yt_title,
+                record.title,
                 record.renamed_to,
                 record.rename_tier,
                 record.uploader,
@@ -332,7 +320,7 @@ def get_item(video_id: str, playlist_id: str) -> Optional[dict]:
     conn = _get_conn()
     row = conn.execute(
         """
-        SELECT video_id, playlist_id, yt_title, renamed_to, rename_tier,
+        SELECT video_id, playlist_id, title, renamed_to, rename_tier,
                uploader, channel_url, duration_secs, downloaded_at
         FROM items
         WHERE video_id = ? AND playlist_id = ?
@@ -362,7 +350,7 @@ def list_items_for_playlist(playlist_id: str) -> list:
     conn = _get_conn()
     rows = conn.execute(
         """
-        SELECT video_id, playlist_id, yt_title, renamed_to, rename_tier,
+        SELECT video_id, playlist_id, title, renamed_to, rename_tier,
                uploader, channel_url, duration_secs, downloaded_at
         FROM items
         WHERE playlist_id = ?
@@ -454,7 +442,7 @@ def get_downloaded_ids(playlist_id: str) -> set:
 def insert_failed(
     video_id: str,
     playlist_id: str,
-    yt_title: str,
+    title: str,
     url: str,
     error_message: str,
 ) -> None:
@@ -468,14 +456,14 @@ def insert_failed(
         conn.execute(
             """
             INSERT INTO failed_downloads
-                (video_id, playlist_id, yt_title, url, error_message, attempt_count, last_attempted_at)
+                (video_id, playlist_id, title, url, error_message, attempt_count, last_attempted_at)
             VALUES (?, ?, ?, ?, ?, 1, ?)
             ON CONFLICT(video_id, playlist_id) DO UPDATE SET
                 attempt_count     = attempt_count + 1,
                 error_message     = excluded.error_message,
                 last_attempted_at = excluded.last_attempted_at
             """,
-            (video_id, playlist_id, yt_title, url, error_message, now),
+            (video_id, playlist_id, title, url, error_message, now),
         )
         conn.commit()
     finally:

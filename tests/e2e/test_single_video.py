@@ -76,7 +76,7 @@ def test_file_exists_on_disk(single_video_job):
     """A downloaded audio file exists under the downloads directory."""
     done = [i for i in single_video_job["items"] if i["state"] == "done"]
     assert done, "No done items"
-    stem = done[0].get("renamed_to") or done[0]["yt_title"]
+    stem = done[0].get("renamed_to") or done[0]["title"]
     assert _find_audio_file(stem), (
         f"No audio file matching '{stem[:20]}...' in {_DOWNLOADS_DIR}"
     )
@@ -88,7 +88,7 @@ def test_downloaded_file_is_valid_audio(single_video_job):
     """The downloaded file is openable by mutagen and has a positive duration."""
     done = [i for i in single_video_job["items"] if i["state"] == "done"]
     assert done, "No done items"
-    stem = done[0].get("renamed_to") or done[0]["yt_title"]
+    stem = done[0].get("renamed_to") or done[0]["title"]
     path = _find_audio_file(stem)
     assert path, f"Audio file not found for '{stem[:20]}...'"
 
@@ -108,7 +108,7 @@ def test_original_title_tag_embedded(single_video_job):
     assert done, "No done items"
 
     item = done[0]
-    stem = item.get("renamed_to") or item["yt_title"]
+    stem = item.get("renamed_to") or item["title"]
     path = _find_audio_file(stem)
     assert path, f"Audio file not found for '{stem[:20]}...'"
 
@@ -119,8 +119,8 @@ def test_original_title_tag_embedded(single_video_job):
 
     txxx = tags.getall("TXXX:original_title")
     assert txxx, f"No TXXX:original_title in {path}"
-    assert txxx[0].text[0] == item["yt_title"], (
-        f"Embedded '{txxx[0].text[0]}' != original '{item['yt_title']}'"
+    assert txxx[0].text[0] == item["title"], (
+        f"Embedded '{txxx[0].text[0]}' != original '{item['title']}'"
     )
 
 

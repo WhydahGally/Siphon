@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import logging
+import re
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -64,12 +65,13 @@ def _resolve_output_dir(output_dir: str) -> str:
     return os.path.abspath(output_dir)
 
 
-def _normalise_youtube_url(url: str) -> str:
+def _normalise_url(url: str) -> str:
     """
     If the URL contains a YouTube list= param, return a clean playlist URL
     (https://www.youtube.com/playlist?list=LIST_ID), discarding any v= param.
     This avoids yt-dlp treating the URL as a single-video context and only
     returning one entry instead of the full playlist.
+    For non-YouTube URLs, the URL is returned unchanged.
     """
     from urllib.parse import urlparse, parse_qs
     parsed = urlparse(url)
@@ -81,6 +83,52 @@ def _normalise_youtube_url(url: str) -> str:
         # Has both v= and list= — normalise to clean playlist URL
         return f"https://www.youtube.com/playlist?list={list_id}"
     return url
+
+
+_EXTRACTOR_SUFFIXES = re.compile(
+    r'(?:Tab|Playlist|Channel|Album|User|Search|Feed|Tag|Set|IE)$'
+)
+
+
+def sanitize_platform(extractor_key: str) -> str:
+    """Strip yt-dlp internal suffixes from extractor_key for human-readable display.
+
+    Examples: 'YoutubeTab' → 'Youtube', 'BandcampAlbum' → 'Bandcamp'.
+    """
+    return _EXTRACTOR_SUFFIXES.sub('', extractor_key).strip() or extractor_key
+
+
+# Cached playlist URL patterns derived from yt-dlp extractor _VALID_URL regexes.
+# Computed once at first request so startup time is unaffected.
+_PLAYLIST_PATTERNS: dict | None = None
+_PLAYLIST_PATH_KW = frozenset(['list', 'playlist', 'album', 'set', 'channel', 'collection', 'series', 'feed', 'user', 'favlist', 'mylist'])
+_PLAYLIST_PARAM_KW = frozenset(['list', 'playlist', 'playlistid', 'album', 'channel', 'series', 'user'])
+_SKIP_SEGMENTS = frozenset(['www', 'com', 'net', 'org', 'tv', 'io', 'watch', 'video', 'videos'])
+
+
+def _compute_playlist_patterns() -> dict:
+    global _PLAYLIST_PATTERNS
+    if _PLAYLIST_PATTERNS is not None:
+        return _PLAYLIST_PATTERNS
+    from yt_dlp import extractor as yt_extractor
+    path_segments: set[str] = set()
+    query_params: set[str] = set()
+    for ie in yt_extractor.gen_extractors():
+        valid_url = getattr(ie, '_VALID_URL', None)
+        if not valid_url:
+            continue
+        if not isinstance(valid_url, str):
+            valid_url = str(valid_url)
+        for seg in re.findall(r'/([a-z_-]{3,20})/', valid_url):
+            if seg not in _SKIP_SEGMENTS:
+                path_segments.add(seg)
+        for param in re.findall(r'[?&]([a-z_]{2,15})=', valid_url):
+            query_params.add(param)
+    _PLAYLIST_PATTERNS = {
+        "path_segments": sorted(s for s in path_segments if any(k in s for k in _PLAYLIST_PATH_KW)),
+        "query_params": sorted(q for q in query_params if any(k in q for k in _PLAYLIST_PARAM_KW)),
+    }
+    return _PLAYLIST_PATTERNS
 
 
 def _fetch_playlist_info(url: str) -> dict:
@@ -229,16 +277,18 @@ async def _log_requests(request, call_next):
 
 @app.post("/playlists", status_code=201)
 def api_add_playlist(body: PlaylistCreate):
-    url = _normalise_youtube_url(body.url)
+    url = _normalise_url(body.url)
     output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
 
-    logger.info("Fetching playlist info from YouTube…")
+    logger.info("Fetching playlist info…")
     info = _fetch_playlist_info(url)
     playlist_id = info.get("id") or info.get("playlist_id")
     playlist_name = info.get("title") or info.get("playlist_title")
 
     if not playlist_id or not playlist_name:
-        raise HTTPException(status_code=422, detail="Could not retrieve playlist ID or title from YouTube.")
+        raise HTTPException(status_code=422, detail="Could not retrieve playlist ID or title.")
+
+    platform = sanitize_platform(info.get("extractor_key", "")) or None
 
     try:
         registry.add_playlist(
@@ -251,6 +301,7 @@ def api_add_playlist(body: PlaylistCreate):
             auto_rename=body.auto_rename,
             watched=body.watched,
             check_interval_secs=body.check_interval_secs,
+            platform=platform,
         )
     except ValueError:
         raise HTTPException(status_code=409, detail="Playlist already registered.")
@@ -456,7 +507,7 @@ def api_rename_playlist_item(playlist_id: str, video_id: str, body: RenameReques
     safe_folder = sanitize_name(playlist["name"]) or playlist_id
     item_dir = os.path.join(output_dir, safe_folder)
 
-    old_stem = item["renamed_to"] or item["yt_title"]
+    old_stem = item["renamed_to"] or item["title"]
     old_path = resolve_file_path(item_dir, old_stem)
     if old_path is None:
         raise HTTPException(status_code=404, detail=f"File not found on disk for '{old_stem}'.")
@@ -579,13 +630,23 @@ def api_health():
     return {"status": "ok", "watched_playlists": watched}
 
 
+@app.get("/playlist-patterns")
+def api_playlist_patterns():
+    """Return yt-dlp-derived URL patterns that indicate a playlist/channel URL.
+
+    Used by the frontend to show the Auto sync toggle when a playlist URL is entered.
+    Computed once from yt-dlp extractor metadata and cached for the lifetime of the process.
+    """
+    return _compute_playlist_patterns()
+
+
 # ------------------------------------------------------------------
 # /jobs endpoints
 # ------------------------------------------------------------------
 
 @app.post("/jobs", status_code=202)
 def api_create_job(body: JobCreate):
-    url = _normalise_youtube_url(body.url)
+    url = _normalise_url(body.url)
     output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
 
     try:
@@ -603,7 +664,9 @@ def api_create_job(body: JobCreate):
         playlist_id = info.get("id") or info.get("playlist_id")
         playlist_name = info.get("title") or info.get("playlist_title")
         if not playlist_id or not playlist_name:
-            raise HTTPException(status_code=422, detail="Could not retrieve playlist ID or title from YouTube.")
+            raise HTTPException(status_code=422, detail="Could not retrieve playlist ID or title.")
+
+        platform = sanitize_platform(info.get("extractor_key", "")) or None
 
         try:
             registry.add_playlist(
@@ -616,6 +679,7 @@ def api_create_job(body: JobCreate):
                 auto_rename=body.auto_rename,
                 watched=body.watched,
                 check_interval_secs=body.check_interval_secs,
+                platform=platform,
             )
             existing_playlist = False
         except ValueError:
@@ -715,7 +779,7 @@ async def api_stream_job(job_id: str):
                             "job_id": job_id,
                             "video_id": item.video_id,
                             "state": item.state,
-                            "yt_title": item.yt_title,
+                            "title": item.title,
                             "renamed_to": item.renamed_to,
                             "error": item.error,
                         })
@@ -791,7 +855,7 @@ def api_rename_job_item(job_id: str, video_id: str, body: RenameRequest):
     else:
         item_dir = _resolve_output_dir(job.output_dir or _DEFAULT_OUTPUT_DIR)
 
-    old_stem = item.renamed_to or item.yt_title
+    old_stem = item.renamed_to or item.title
     old_path = resolve_file_path(item_dir, old_stem)
     if old_path is None:
         raise HTTPException(status_code=404, detail=f"File not found on disk for '{old_stem}'.")
@@ -813,7 +877,7 @@ def api_rename_job_item(job_id: str, video_id: str, body: RenameRequest):
 
     return {
         "video_id": item.video_id,
-        "yt_title": item.yt_title,
+        "title": item.title,
         "renamed_to": item.renamed_to,
         "rename_tier": item.rename_tier,
         "state": item.state,
@@ -905,7 +969,7 @@ def _job_to_dict(job: DownloadJob) -> dict:
         "items": [
             {
                 "video_id": item.video_id,
-                "yt_title": item.yt_title,
+                "title": item.title,
                 "state": item.state,
                 "renamed_to": item.renamed_to,
                 "rename_tier": item.rename_tier,

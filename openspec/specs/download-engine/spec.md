@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Single public download function
-The engine SHALL expose one public function `download(url, output_dir, options, progress_callback=None, mb_user_agent=None, auto_rename=False, on_item_complete=None)`. The function SHALL accept either a single video URL or a playlist URL. In the parallel sync path, the engine is called with individual video URLs (one per thread); playlist URL support is retained for standalone and `__main__` usage.
+The engine SHALL expose one public function `download(url, output_dir, options, progress_callback=None, mb_user_agent=None, auto_rename=False, on_item_complete=None)`. The function SHALL accept either a single video URL or a playlist URL from any yt-dlp-supported platform. In the parallel sync path, the engine is called with individual video URLs (one per thread); playlist URL support is retained for standalone and `__main__` usage.
 
 The function SHALL be safe to call from multiple threads simultaneously. Each invocation creates its own `YoutubeDL` instance with no shared mutable state between invocations.
 
@@ -9,8 +9,8 @@ The `on_item_complete` parameter is an optional callable that receives an `ItemR
 
 `ItemRecord` fields:
 - `video_id` (str)
-- `playlist_id` (str | None): the YT playlist ID if this download is part of a playlist, else None
-- `yt_title` (str)
+- `playlist_id` (str | None): the playlist ID if this download is part of a playlist, else None
+- `title` (str): the raw title as provided by yt-dlp
 - `renamed_to` (str | None): final filename stem; None if renamer returned None
 - `rename_tier` (str | None)
 - `uploader` (str | None)

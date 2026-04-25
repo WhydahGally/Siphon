@@ -21,7 +21,7 @@ const syncInfo = computed(() => props.playlist.sync_info ?? null)
 // Interval inline edit
 const editingInterval = ref(false)
 const intervalInput = ref('')
-const currentIntervalSecs = ref(props.playlist.check_interval_secs)
+const currentIntervalSecs = ref(props.playlist.check_interval_secs ?? 86400)
 const intervalEditRef = ref(null)
 const mobileIntervalEditRef = ref(null)
 let _intervalClickOutside = null
@@ -154,7 +154,7 @@ function formatDate(iso) {
 function formatSyncedDate(iso) {
   if (!iso) return 'never synced'
   const diffMs = new Date() - new Date(iso)
-  if (diffMs < 60000) return 'less than a minute ago'
+  if (diffMs < 60000) return 'now'
   if (diffMs < 3600000) return `${Math.floor(diffMs / 60000)}m ago`
   if (diffMs < 86400000) return `${Math.floor(diffMs / 3600000)}h ago`
   return formatDate(iso)
@@ -220,6 +220,7 @@ onMounted(() => {
           </span>
         </div>
         <div v-else class="mobile-meta">
+          <span v-if="playlist.platform" class="platform-badge">{{ playlist.platform }}</span>
           <span class="meta-item">{{ playlist.item_count }} items</span>
           <span class="meta-sep">·</span>
           <span class="meta-item">Added {{ formatSyncedDate(playlist.added_at) }}</span>
@@ -287,6 +288,7 @@ onMounted(() => {
       <div class="row-right">
         <div class="row-meta-slot">
           <div class="row-meta-line" :style="{ visibility: syncing ? 'hidden' : 'visible' }">
+            <span v-if="playlist.platform" class="platform-badge">{{ playlist.platform }}</span>
             <span class="meta-item">{{ playlist.item_count }} items</span>
             <span class="meta-sep">·</span>
             <span class="meta-item">Added {{ formatSyncedDate(playlist.added_at) }}</span>
@@ -316,7 +318,7 @@ onMounted(() => {
               <input type="checkbox" :checked="watched" @change="toggleWatched" />
               <span class="slider" />
             </span>
-            <span class="autosync-text">Auto sync &mdash;
+            <span class="autosync-text">Auto sync<template v-if="watched"> &mdash;
               <span
                 v-if="!editingInterval"
                 class="interval-display"
@@ -335,7 +337,7 @@ onMounted(() => {
                   <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
                 </button>
               </span>
-            </span>
+            </template></span>
           </label>
         </div>
       </div>
@@ -514,6 +516,16 @@ onMounted(() => {
 .meta-item {
   font-size: 12px;
   color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.platform-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-hover, rgba(128,128,128,0.12));
+  border-radius: 4px;
+  padding: 1px 6px;
   white-space: nowrap;
 }
 

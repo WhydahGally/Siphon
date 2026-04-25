@@ -166,7 +166,7 @@ def main() -> None:
     # -- rename-item --
     p_ri = sub.add_parser("rename-item", help="Rename a downloaded item in a playlist.")
     p_ri.add_argument("playlist", help="Name of the playlist.")
-    p_ri.add_argument("current_name", metavar="current-name", help="Current name of the item (renamed_to or yt_title).")
+    p_ri.add_argument("current_name", metavar="current-name", help="Current name of the item (renamed_to or title).")
     p_ri.add_argument("new_name", metavar="new-name", help="New name for the item.")
 
     args = parser.parse_args()
