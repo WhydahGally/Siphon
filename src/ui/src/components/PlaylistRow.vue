@@ -665,7 +665,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 10px;
+  padding: 0 10px 0 0px;
 }
 
 /* ── Spinner ─────────────────────────────────────────────────── */

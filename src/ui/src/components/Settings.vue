@@ -843,6 +843,9 @@ code {
   min-width: 0;
 }
 
-.danger-control-col { flex-shrink: 0; }
+.danger-control-col {
+  flex-shrink: 0;
+  width: 160px; /* wide enough for "Yes, reset everything" */
+}
 </style>
 
