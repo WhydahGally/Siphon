@@ -183,6 +183,10 @@ def _build_ydl_opts(
         ydl_opts["postprocessors"] = build_audio_postprocessors(options.audio_format)
         logger.debug("Audio format: %s | postprocessors: %s", options.audio_format, ydl_opts["postprocessors"])
 
+    if options.sponsorblock_categories:
+        ydl_opts["sponsorblock_remove"] = set(options.sponsorblock_categories)
+        logger.debug("SponsorBlock categories: %s", options.sponsorblock_categories)
+
     logger.debug("Postprocessor chain: %s", ydl_opts.get('postprocessors', []))
     return ydl_opts
 
@@ -680,9 +684,12 @@ def sync_parallel(
     noise_patterns: Optional[list] = None,
     on_sync_info: Optional[Callable] = None,
     on_sync_done: Optional[Callable] = None,
+    sponsorblock_categories: Optional[list] = None,
 ) -> None:
     try:
         options = build_options(fmt, quality)
+        if sponsorblock_categories:
+            options.sponsorblock_categories = sponsorblock_categories
 
         logger.info("Enumerating '%s'…", playlist_name)
         entries = enumerate_entries(url)

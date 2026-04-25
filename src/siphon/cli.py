@@ -136,6 +136,7 @@ def cmd_add(args: argparse.Namespace) -> int:
         "auto_rename": args.auto_rename,
         "watched": not args.no_watch,
         "download": args.download,
+        "sponsorblock_enabled": not args.no_sponsorblock,
     }
     if args.interval is not None:
         if args.interval <= 0:
@@ -379,9 +380,23 @@ _KNOWN_KEYS = {
         "(e.g. '(Official Video)', '[Lyric Video]') from filenames and MB query inputs. "
         "Each string must be a valid Python regex. When unset, built-in defaults are used.",
     ),
+    "sponsorblock-enabled": (
+        "sponsorblock_enabled",
+        "Global default SponsorBlock state when adding a new download. Accepted: true, false. Default: true.",
+    ),
+    "sponsorblock-categories": (
+        "sponsorblock_categories",
+        "JSON array of SponsorBlock categories to remove globally. "
+        "Valid: sponsor, interaction, selfpromo, intro, outro, preview, hook, filler, music_offtopic. "
+        "Default: '[\"music_offtopic\"]'.",
+    ),
 }
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
+_VALID_SB_CATEGORIES = {
+    "sponsor", "interaction", "selfpromo", "intro", "outro",
+    "preview", "hook", "filler", "music_offtopic",
+}
 
 # Keys whose values must be one of a fixed set.
 _ALLOWED_VALUES: dict = {
@@ -389,9 +404,10 @@ _ALLOWED_VALUES: dict = {
     "auto-rename": {"true", "false"},
     "theme": {"dark", "light"},
     "browser-logs": {"on", "off"},
+    "sponsorblock-enabled": {"true", "false"},
 }
 
-_PLAYLIST_KNOWN_KEYS = {"interval", "auto-rename", "watched"}
+_PLAYLIST_KNOWN_KEYS = {"interval", "auto-rename", "watched", "sponsorblock", "sb-cats"}
 
 
 def cmd_config(args: argparse.Namespace) -> int:
@@ -461,6 +477,10 @@ def cmd_config_playlist(args: argparse.Namespace) -> int:
         interval = match.get("check_interval_secs")
         print(f"interval:    {interval if interval is not None else f'{_DEFAULT_INTERVAL} (global default)'}")
         print(f"auto-rename: {bool(match.get('auto_rename', False))}")
+        sb_enabled = match.get("sponsorblock_enabled", True)
+        sb_cats_raw = match.get("sponsorblock_categories")
+        print(f"sponsorblock: {bool(sb_enabled)}")
+        print(f"sb-cats:     {sb_cats_raw if sb_cats_raw is not None else '(global default)'}")
         return 0
 
     if args.key not in _PLAYLIST_KNOWN_KEYS:
@@ -476,6 +496,11 @@ def cmd_config_playlist(args: argparse.Namespace) -> int:
             print(f"auto-rename: {bool(match.get('auto_rename', False))}")
         elif args.key == "watched":
             print(f"watched: {bool(match.get('watched', True))}")
+        elif args.key == "sponsorblock":
+            print(f"sponsorblock: {bool(match.get('sponsorblock_enabled', True))}")
+        elif args.key == "sb-cats":
+            raw = match.get("sponsorblock_categories")
+            print(f"sb-cats: {raw if raw is not None else '(global default)'}")
         return 0
 
     # Write mode
@@ -490,6 +515,28 @@ def cmd_config_playlist(args: argparse.Namespace) -> int:
             logger.error("interval must be a positive integer.")
             return 1
         patch["check_interval_secs"] = val
+    elif args.key == "sb-cats":
+        import json as _json
+        raw = args.value.strip()
+        if not raw:
+            logger.error("sb-cats requires a value. Pass one or more categories (e.g. 'music_offtopic,sponsor') or use 'siphon config-playlist <name> sponsorblock false' to disable.")
+            return 1
+        if not raw.startswith("["):
+            # Comma-separated shorthand
+            raw = _json.dumps([c.strip() for c in raw.split(",") if c.strip()])
+        try:
+            cats = _json.loads(raw)
+        except _json.JSONDecodeError:
+            logger.error("sb-cats must be a JSON array or comma-separated list of categories.")
+            return 1
+        if not cats:
+            logger.error("sb-cats cannot be empty. Pass at least one category or use 'siphon config-playlist <name> sponsorblock false' to disable.")
+            return 1
+        invalid = [c for c in cats if c not in _VALID_SB_CATEGORIES]
+        if invalid:
+            logger.error("Invalid categories: %s. Valid: %s", invalid, sorted(_VALID_SB_CATEGORIES))
+            return 1
+        patch["sponsorblock_categories"] = cats
     else:
         try:
             bool_val = _parse_bool(args.value)
@@ -498,6 +545,8 @@ def cmd_config_playlist(args: argparse.Namespace) -> int:
             return 1
         if args.key == "auto-rename":
             patch["auto_rename"] = bool_val
+        elif args.key == "sponsorblock":
+            patch["sponsorblock_enabled"] = bool_val
         else:
             patch["watched"] = bool_val
 

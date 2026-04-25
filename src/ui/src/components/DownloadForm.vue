@@ -6,13 +6,15 @@ import { useSettings } from '../composables/useSettings.js'
 
 const emit = defineEmits(['job-created'])
 const { showToast } = useToast()
-const { autoRename: globalAutoRename, loaded: settingsLoaded } = useSettings()
+const { autoRename: globalAutoRename, sponsorBlockEnabled: globalSponsorBlock, loaded: settingsLoaded } = useSettings()
 
 const url = ref('')
 const format = ref('mp3')
 const quality = ref('best')
 const autoRename = ref(globalAutoRename.value)
 watch(settingsLoaded, () => { autoRename.value = globalAutoRename.value }, { once: true })
+const sponsorBlock = ref(globalSponsorBlock.value)
+watch(settingsLoaded, () => { sponsorBlock.value = globalSponsorBlock.value }, { once: true })
 const autoSync = ref(true)
 const interval = ref(86400)
 const editingInterval = ref(false)
@@ -108,6 +110,7 @@ async function handleDownload() {
     quality: isAudio.value ? 'best' : quality.value,
     auto_rename: autoRename.value,
     watched: isPlaylist.value ? autoSync.value : false,
+    sponsorblock_enabled: sponsorBlock.value,
   }
   if (isPlaylist.value && autoSync.value && interval.value) {
     body.check_interval_secs = Number(interval.value)
@@ -205,6 +208,15 @@ async function handleDownload() {
           class="warn-icon"
           title="Configure mb-user-agent in settings."
         >⚠</span>
+      </label>
+
+      <!-- Sponsor Block -->
+      <label v-if="settingsLoaded" class="toggle-label">
+        <span class="toggle-switch">
+          <input v-model="sponsorBlock" type="checkbox" :disabled="loading" />
+          <span class="slider" />
+        </span>
+        <span>Sponsor Block</span>
       </label>
 
       <!-- Auto sync (playlist only) — interval is inline -->

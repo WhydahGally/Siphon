@@ -14,6 +14,7 @@ const emit = defineEmits(['expand', 'collapse', 'deleted'])
 
 // local copies of mutable state
 const autoRename = ref(props.playlist.auto_rename)
+const sponsorBlock = ref(props.playlist.sponsorblock_enabled ?? true)
 const watched = ref(props.playlist.watched)
 const syncing = ref(props.playlist.is_syncing)
 const syncInfo = computed(() => props.playlist.sync_info ?? null)
@@ -101,6 +102,20 @@ async function toggleAutoRename() {
     })
   } catch {
     autoRename.value = !next // revert on error
+  }
+}
+
+async function toggleSponsorBlock() {
+  const next = !sponsorBlock.value
+  sponsorBlock.value = next
+  try {
+    await fetch(`/playlists/${props.playlist.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sponsorblock_enabled: next }),
+    })
+  } catch {
+    sponsorBlock.value = !next // revert on error
   }
 }
 
@@ -238,6 +253,13 @@ onMounted(() => {
         </label>
         <label class="toggle-label">
           <span class="toggle-switch">
+            <input type="checkbox" :checked="sponsorBlock" @change="toggleSponsorBlock" />
+            <span class="slider" />
+          </span>
+          <span>Sponsor Block</span>
+        </label>
+        <label class="toggle-label">
+          <span class="toggle-switch">
             <input type="checkbox" :checked="watched" @change="toggleWatched" />
             <span class="slider" />
           </span>
@@ -311,6 +333,14 @@ onMounted(() => {
               <span class="slider" />
             </span>
             <span>Auto rename</span>
+          </label>
+
+          <label class="toggle-label">
+            <span class="toggle-switch">
+              <input type="checkbox" :checked="sponsorBlock" @change="toggleSponsorBlock" />
+              <span class="slider" />
+            </span>
+            <span>Sponsor Block</span>
           </label>
 
           <label class="toggle-label">

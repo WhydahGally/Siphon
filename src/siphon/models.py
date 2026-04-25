@@ -90,12 +90,16 @@ class PlaylistCreate(BaseModel):
     watched: bool = True
     check_interval_secs: Optional[int] = None
     download: bool = False
+    sponsorblock_enabled: bool = True
+    sponsorblock_categories: Optional[List[str]] = None
 
 
 class PlaylistPatch(BaseModel):
     watched: Optional[bool] = None
     check_interval_secs: Optional[int] = None
     auto_rename: Optional[bool] = None
+    sponsorblock_enabled: Optional[bool] = None
+    sponsorblock_categories: Optional[List[str]] = None
 
 
 class SettingWrite(BaseModel):

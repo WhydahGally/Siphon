@@ -30,6 +30,7 @@ class DownloadOptions:
     quality: Optional[str] = None  # used when mode == "video"
     video_format: Optional[str] = None  # container format when mode == "video"
     audio_format: Optional[str] = None  # used when mode == "audio"
+    sponsorblock_categories: Optional[list] = None  # yt-dlp sponsorblock_remove list
 
     def __post_init__(self):
         if self.mode == "video":

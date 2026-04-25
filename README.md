@@ -15,6 +15,7 @@ Siphon is primarily developed using spec-driven development through [OpenSpec](h
 - **Scheduled syncing** — Configurable per-playlist sync intervals (hourly, daily, whatever you want).
 - **Smart auto-renaming** — Cleans up filenames and titles using embedded metadata and MusicBrainz lookups.
 - **Manual renaming** — Manually rename individual downloaded items from the Web UI or CLI. Changes are applied on disk and in metadata.
+- **SponsorBlock integration** — Automatically removes sponsor segments, intros, outros and non-music sections from downloads using the [SponsorBlock](https://sponsor.ajay.app) community database.
 - **Audio metadata embedding** — Embeds artist, title, album and cover art into audio files.
 - **Web UI** — Manage playlists, view download history, configure settings and monitor progress from your browser.
 - **CLI** — Full command-line interface for automation, scripting and debugging.
@@ -124,7 +125,7 @@ npm run dev
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `siphon --help`                                   | Show all available commands.                                                                                              |
 | `siphon start`                                   | Start the Siphon daemon (required for all other commands).                                                                |
-| `siphon add <url>`                                | Register a playlist (`--download`, `--no-watch`, `--interval`, `--format`, `--quality`, `--output-dir`, `--auto-rename`). |
+| `siphon add <url>`                                | Register a playlist (`--download`, `--no-watch`, `--interval`, `--format`, `--quality`, `--output-dir`, `--auto-rename`, `--no-sb`). |
 | `siphon list`                                     | Show all registered playlists.                                                                                            |
 | `siphon sync [<name>]`                            | Download new items for a specific playlist or all playlists.                                                              |
 | `siphon sync-failed [<name>]`                     | Retry failed downloads for a specific playlist or all.                                                                    |
@@ -132,8 +133,8 @@ npm run dev
 | `siphon delete <name>`                            | Remove a playlist from the registry.                                                                                      |
 | `siphon delete-all-playlists`                     | Remove all playlists and sync history from the registry.                                                                  |
 | `siphon factory-reset`                            | Wipe all playlists, history and settings. Downloads are not affected.                                                     |
-| `siphon config <key> [<value>]`                   | Get or set a global config value (`log-level`, `interval`, `max-concurrent-downloads`, `mb-user-agent`, `auto-rename`, `theme`, `browser-logs`, `title-noise-patterns`). |
-| `siphon config-playlist <name> [<key> [<value>]]` | Get or set per-playlist config (`interval`, `auto-rename`, `watched`).                                                    |
+| `siphon config <key> [<value>]`                   | Get or set a global config value (`log-level`, `interval`, `max-concurrent-downloads`, `mb-user-agent`, `auto-rename`, `theme`, `browser-logs`, `title-noise-patterns`, `sponsorblock-enabled`, `sponsorblock-categories`). |
+| `siphon config-playlist <name> [<key> [<value>]]` | Get or set per-playlist config (`interval`, `auto-rename`, `watched`, `sponsorblock`, `sb-cats`).                         |
 | `siphon playlist-items <name>`                    | List all downloaded items for a playlist.                                                                                 |
 | `siphon rename-item <playlist> <current-name> <new-name>` | Rename a downloaded item in a playlist. Renames the file on disk and sets the rename tier to `manual`.              |
 
