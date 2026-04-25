@@ -57,6 +57,15 @@ jobs:
 
           [Release notes](https://github.com/yt-dlp/yt-dlp/releases/tag/${{ steps.check.outputs.latest }})"
 
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ steps.check.outputs.up_to_date }}" = "true" ]; then
+            echo "### yt-dlp is already up to date: \`${{ steps.check.outputs.current }}\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### yt-dlp bumped: \`${{ steps.check.outputs.current }}\` → \`${{ steps.check.outputs.latest }}\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Trigger e2e tests on bump branch
         if: steps.check.outputs.up_to_date == 'false'
         env:
