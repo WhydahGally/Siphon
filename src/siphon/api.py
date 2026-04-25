@@ -86,7 +86,7 @@ def _normalise_url(url: str) -> str:
 
 
 _EXTRACTOR_SUFFIXES = re.compile(
-    r'(?:Tab|Playlist|Channel|Album|User|Search|Feed|Tag|IE)$'
+    r'(?:Tab|Playlist|Channel|Album|User|Search|Feed|Tag|Set|IE)$'
 )
 
 
