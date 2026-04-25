@@ -51,7 +51,7 @@ jobs:
           git commit -m "chore: bump yt-dlp to ${{ steps.check.outputs.latest }}"
           git push -f origin chore/bump-ytdlp
           gh pr create \
-            --base main \
+            --base develop \
             --title "chore: bump yt-dlp to ${{ steps.check.outputs.latest }}" \
             --body "Bumps yt-dlp from \`${{ steps.check.outputs.current }}\` to \`${{ steps.check.outputs.latest }}\`.
 
