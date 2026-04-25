@@ -98,6 +98,39 @@ def sanitize_platform(extractor_key: str) -> str:
     return _EXTRACTOR_SUFFIXES.sub('', extractor_key).strip() or extractor_key
 
 
+# Cached playlist URL patterns derived from yt-dlp extractor _VALID_URL regexes.
+# Computed once at first request so startup time is unaffected.
+_PLAYLIST_PATTERNS: dict | None = None
+_PLAYLIST_PATH_KW = frozenset(['list', 'playlist', 'album', 'set', 'channel', 'collection', 'series', 'feed', 'user', 'favlist', 'mylist'])
+_PLAYLIST_PARAM_KW = frozenset(['list', 'playlist', 'playlistid', 'album', 'channel', 'series', 'user'])
+_SKIP_SEGMENTS = frozenset(['www', 'com', 'net', 'org', 'tv', 'io', 'watch', 'video', 'videos'])
+
+
+def _compute_playlist_patterns() -> dict:
+    global _PLAYLIST_PATTERNS
+    if _PLAYLIST_PATTERNS is not None:
+        return _PLAYLIST_PATTERNS
+    from yt_dlp import extractor as yt_extractor
+    path_segments: set[str] = set()
+    query_params: set[str] = set()
+    for ie in yt_extractor.gen_extractors():
+        valid_url = getattr(ie, '_VALID_URL', None)
+        if not valid_url:
+            continue
+        if not isinstance(valid_url, str):
+            valid_url = str(valid_url)
+        for seg in re.findall(r'/([a-z_-]{3,20})/', valid_url):
+            if seg not in _SKIP_SEGMENTS:
+                path_segments.add(seg)
+        for param in re.findall(r'[?&]([a-z_]{2,15})=', valid_url):
+            query_params.add(param)
+    _PLAYLIST_PATTERNS = {
+        "path_segments": sorted(s for s in path_segments if any(k in s for k in _PLAYLIST_PATH_KW)),
+        "query_params": sorted(q for q in query_params if any(k in q for k in _PLAYLIST_PARAM_KW)),
+    }
+    return _PLAYLIST_PATTERNS
+
+
 def _fetch_playlist_info(url: str) -> dict:
     """Use yt-dlp to fetch playlist metadata without downloading."""
     ydl_opts = {
@@ -595,6 +628,16 @@ def api_info():
 def api_health():
     watched = len(registry.get_watched_playlists())
     return {"status": "ok", "watched_playlists": watched}
+
+
+@app.get("/playlist-patterns")
+def api_playlist_patterns():
+    """Return yt-dlp-derived URL patterns that indicate a playlist/channel URL.
+
+    Used by the frontend to show the Auto sync toggle when a playlist URL is entered.
+    Computed once from yt-dlp extractor metadata and cached for the lifetime of the process.
+    """
+    return _compute_playlist_patterns()
 
 
 # ------------------------------------------------------------------
