@@ -446,10 +446,10 @@ def resolve_file_path(directory: str, stem: str) -> Optional[str]:
 # ---------------------------------------------------------------------------
 
 def embed_metadata(filepath: str, original_title: str, final_name: str) -> None:
-    """Write the original YT title and resolved name into the file's audio metadata.
+    """Write the original title and resolved name into the file's audio metadata.
 
-    MP3:  ID3 ``TXXX:original_title`` for the raw YT title, ``TIT2`` for the resolved name.
-    Opus: Vorbis ``ORIGINAL_TITLE`` for the raw YT title, ``TITLE`` for the resolved name.
+    MP3:  ID3 ``TXXX:original_title`` for the original title, ``TIT2`` for the resolved name.
+    Opus: Vorbis ``ORIGINAL_TITLE`` for the original title, ``TITLE`` for the resolved name.
     Other formats are silently skipped.
     """
     if not original_title and not final_name:
