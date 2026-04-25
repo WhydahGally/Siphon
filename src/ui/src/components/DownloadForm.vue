@@ -210,13 +210,13 @@ async function handleDownload() {
         >⚠</span>
       </label>
 
-      <!-- Sponsor Block -->
+      <!-- SponsorBlock -->
       <label v-if="settingsLoaded" class="toggle-label">
         <span class="toggle-switch">
           <input v-model="sponsorBlock" type="checkbox" :disabled="loading" />
           <span class="slider" />
         </span>
-        <span>Sponsor Block</span>
+        <span>SponsorBlock</span>
       </label>
 
       <!-- Auto sync (playlist only) — interval is inline -->
@@ -225,7 +225,7 @@ async function handleDownload() {
           <input v-model="autoSync" type="checkbox" :disabled="loading" />
           <span class="slider" />
         </span>
-        <span>Auto sync<template v-if="autoSync"> &mdash;
+        <span>Auto sync<template v-if="autoSync"> ·
           <span v-if="!editingInterval" class="interval-display" @click.stop.prevent="openIntervalEdit">
             {{ intervalDisplay }}
             <svg class="pencil-icon" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">

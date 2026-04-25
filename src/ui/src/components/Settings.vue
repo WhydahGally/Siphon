@@ -408,9 +408,10 @@ async function handleFactoryReset() {
         <div class="setting-label-col">
           <span class="setting-label">Remove segments</span>
           <span class="setting-desc">
-            Automatically cut sponsor segments, intros, outros and non-music sections using the
-            <a href="https://sponsor.ajay.app" target="_blank" rel="noopener noreferrer" class="about-link">SponsorBlock</a>
-            community database. Requires ffmpeg (included in the Docker image).
+            Automatically remove segments using the
+            <a href="https://sponsor.ajay.app" target="_blank" rel="noopener noreferrer" class="about-link">SponsorBlock ↗</a>
+            community database.<br />
+            Requires ffmpeg (included in the Docker image).
           </span>
         </div>
         <div class="setting-control-col">
@@ -429,7 +430,7 @@ async function handleFactoryReset() {
         >
           <div class="setting-label-col">
             <span class="setting-label">Categories</span>
-            <span class="setting-desc">Toggle which segment types to remove.</span>
+            <span class="setting-desc">Select the segment types to remove.</span>
           </div>
           <button class="noise-expand-strip" :class="{ 'is-expanded': sbCatsOpen }">
             <span class="chevron">›</span>
@@ -865,19 +866,22 @@ code {
 
 /* ── SponsorBlock chips ──────────────────────────────────────────────────── */
 .sb-chips {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
   gap: 8px;
   padding: 4px 0 8px;
+  max-width: 360px;
+  margin: 0 auto;
 }
 
 .sb-chip {
-  padding: 4px 12px;
+  padding: 6px 12px;
   border-radius: 14px;
   border: 1px solid var(--border);
   background: var(--card-bg);
   color: var(--text-muted);
   font-size: 12px;
+  text-align: center;
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
 }
@@ -886,6 +890,17 @@ code {
   background: var(--accent);
   border-color: var(--accent);
   color: #fff;
+}
+
+@media (max-width: 480px) {
+  .sb-chips {
+    gap: 5px;
+    max-width: 260px;
+  }
+  .sb-chip {
+    padding: 5px 8px;
+    font-size: 11px;
+  }
 }
 
 /* ── Theme toggle ────────────────────────────────────────────────────────── */
