@@ -526,9 +526,9 @@ def cmd_playlist_items(args: argparse.Namespace) -> int:
     print()
     for item in items:
         if item.get("renamed_to"):
-            print(f"  {item['yt_title']} → {item['renamed_to']}")
+            print(f"  {item['title']} \u2192 {item['renamed_to']}")
         else:
-            print(f"  {item['yt_title']}")
+            print(f"  {item['title']}")
     return 0
 
 
@@ -540,10 +540,10 @@ def cmd_rename_item(args: argparse.Namespace) -> int:
         logger.error("No playlist named '%s'. Run 'siphon list' to see registered playlists.", args.playlist)
         return 1
 
-    # Find the item by matching current-name against renamed_to or yt_title.
+    # Find the item by matching current-name against renamed_to or title.
     items = _daemon_get(f"/playlists/{match['id']}/items")
     item = next(
-        (i for i in items if (i.get("renamed_to") or i["yt_title"]) == args.current_name),
+        (i for i in items if (i.get("renamed_to") or i["title"]) == args.current_name),
         None,
     )
     if item is None:

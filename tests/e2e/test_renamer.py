@@ -3,7 +3,7 @@ tests/e2e/test_renamer.py — Auto-rename on/off, filename sanitisation, and man
 
 Covers:
   - auto_rename=True: job item has renamed_to, filename on disk is clean
-  - auto_rename=False: job item renamed_to is None or equals yt_title (raw output)
+  - auto_rename=False: job item renamed_to is None or equals title (raw output)
   - Visual-equivalent Unicode replaces filesystem-unsafe chars in title
   - Noise suffixes (Official Music Video, etc.) are stripped from filenames
   - Manual rename via PUT /jobs/{id}/items/{video_id}/rename updates DB and disk
@@ -78,7 +78,7 @@ def test_auto_rename_true_sets_renamed_to(renamed_job):
     renamed = [i for i in done_items if i.get("renamed_to")]
     assert renamed, (
         "auto_rename=True but no item has renamed_to set. "
-        f"Items: {[(i['yt_title'], i.get('renamed_to')) for i in done_items]}"
+        f"Items: {[(i['title'], i.get('renamed_to')) for i in done_items]}"
     )
 
 
@@ -91,7 +91,7 @@ def test_unsafe_chars_replaced_with_visual_equivalents(renamed_job):
     instead the visual-equivalent Unicode replacements must be present.
     """
     done_items = [i for i in renamed_job["items"] if i["state"] == "done" and i.get("renamed_to")]
-    unsafe_items = [i for i in done_items if any(c in i["yt_title"] for c in _UNSAFE_ASCII)]
+    unsafe_items = [i for i in done_items if any(c in i["title"] for c in _UNSAFE_ASCII)]
 
     if not unsafe_items:
         pytest.skip("No items with unsafe chars in title in this playlist — skipping")
@@ -102,7 +102,7 @@ def test_unsafe_chars_replaced_with_visual_equivalents(renamed_job):
         for c in _UNSAFE_ASCII:
             assert c not in renamed, (
                 f"Raw unsafe char '{c}' found in renamed_to '{renamed}' "
-                f"(original title: '{item['yt_title']}')"
+                f"(original title: '{item['title']}')"
             )
         # And the file on disk should match
         audio_files = _find_audio_files_in_downloads()
@@ -124,7 +124,7 @@ def test_noise_suffix_stripped_from_filename(renamed_job):
     done_items = [i for i in renamed_job["items"] if i["state"] == "done" and i.get("renamed_to")]
     noisy_items = [
         i for i in done_items
-        if any(ns in i["yt_title"].lower() for ns in _NOISE_SUBSTRINGS)
+        if any(ns in i["title"].lower() for ns in _NOISE_SUBSTRINGS)
     ]
 
     if not noisy_items:
@@ -135,7 +135,7 @@ def test_noise_suffix_stripped_from_filename(renamed_job):
         for ns in _NOISE_SUBSTRINGS:
             assert ns not in renamed_lower, (
                 f"Noise suffix '{ns}' still present in renamed_to '{item['renamed_to']}' "
-                f"(original: '{item['yt_title']}')"
+                f"(original: '{item['title']}')"
             )
 
 

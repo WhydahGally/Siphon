@@ -322,7 +322,7 @@ async function handleFactoryReset() {
           <div class="setting-label-col">
             <span class="setting-label">Title noise patterns</span>
             <span class="setting-desc">
-              Regex patterns that strip YouTube noise suffixes (e.g. <code>(Official Video)</code>, <code>[Lyric Video]</code>)
+              Regex patterns that strip noise suffixes from titles (e.g. <code>(Official Video)</code>, <code>[Lyric Video]</code>)
               from filenames.
             </span>
           </div>

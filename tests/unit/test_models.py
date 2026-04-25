@@ -14,7 +14,7 @@ def _make_items(*states: str) -> list:
     return [
         JobItem(
             video_id=f"vid{i}",
-            yt_title=f"Title {i}",
+            title=f"Title {i}",
             url=f"https://youtu.be/vid{i}",
             state=state,
         )
@@ -103,7 +103,7 @@ def test_not_terminal_empty_items():
 # ---------------------------------------------------------------------------
 
 def test_job_item_defaults():
-    item = JobItem(video_id="v1", yt_title="Song", url="https://youtu.be/v1", state="pending")
+    item = JobItem(video_id="v1", title="Song", url="https://youtu.be/v1", state="pending")
     assert item.renamed_to is None
     assert item.error is None
     assert item.started_at is None

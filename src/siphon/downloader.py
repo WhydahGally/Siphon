@@ -32,11 +32,10 @@ def download(
     on_item_complete: Optional[Callable[[ItemRecord], None]] = None,
     noise_patterns: Optional[list] = None,
 ) -> None:
-    """
-    Download a YouTube playlist or single video.
+    """Download a playlist or single video from any yt-dlp-supported platform.
 
     Args:
-        url:               YouTube playlist or video URL.
+        url:               URL of a playlist or video (any yt-dlp-supported platform).
         output_dir:        Root directory for downloaded files.
         options:           Format and quality options (DownloadOptions).
                            For video mode, set `quality` (best/2160/1080/720/480/360)
@@ -67,14 +66,14 @@ def download(
 
         # Download a playlist as 1080p MP4 files
         download(
-            url="https://www.youtube.com/playlist?list=PLAYLIST_ID",
+            url="https://www.example.com/playlist?list=PLAYLIST_ID",
             output_dir="./downloads",
             options=DownloadOptions(mode="video", quality="1080", video_format="mp4"),
         )
 
         # Download a playlist as MP3 audio
         download(
-            url="https://www.youtube.com/playlist?list=PLAYLIST_ID",
+            url="https://www.example.com/playlist?list=PLAYLIST_ID",
             output_dir="./downloads",
             options=DownloadOptions(mode="audio", audio_format="mp3"),
         )
@@ -91,18 +90,23 @@ def download(
             "Install it with: brew install ffmpeg  (macOS) or  apt install ffmpeg  (Linux)."
         )
 
-    # Determine whether this is a playlist or a single video.
-    # yt-dlp handles both with the same API; the output template differs.
-    is_playlist = "list=" in url or "/playlist" in url
+    # Determine whether this is a playlist or a single video by asking yt-dlp.
+    # We use extract_flat=True for a lightweight metadata-only pre-flight; no
+    # format resolution or download is triggered. _type of "playlist" or "channel"
+    # means grouped content; anything else (including absent _type) is single video.
+    _preflight_opts = {"extract_flat": True, "quiet": True, "skip_download": True}
+    with YoutubeDL(_preflight_opts) as _ydl:
+        _info = _ydl.extract_info(url, download=False) or {}
+    is_playlist = _info.get("_type") in ("playlist", "channel")
 
     if is_playlist:
         # Playlist: group files under a playlist-named subfolder.
         output_template = os.path.join(output_dir, "%(playlist_title)s", "%(title)s.%(ext)s")
-        logger.debug("URL identified as playlist. Output template: %s", output_template)
+        logger.debug("URL identified as playlist (_type=%s). Output template: %s", _info.get("_type"), output_template)
     else:
         # Single video: place directly in output_dir.
         output_template = os.path.join(output_dir, "%(title)s.%(ext)s")
-        logger.debug("URL identified as single video. Output template: %s", output_template)
+        logger.debug("URL identified as single video (_type=%s). Output template: %s", _info.get("_type"), output_template)
 
     # Build the yt-dlp options dict.
     ydl_opts = _build_ydl_opts(options, output_template, progress_callback, mb_user_agent)
@@ -224,7 +228,7 @@ class _RenamePostProcessor(PostProcessor):
                 record = ItemRecord(
                     video_id=info.get("id") or "",
                     playlist_id=info.get("playlist_id"),
-                    yt_title=info.get("title") or "",
+                    title=info.get("title") or "",
                     renamed_to=result.final_name if result else None,
                     rename_tier=result.tier if result else None,
                     uploader=info.get("uploader") or info.get("channel"),
@@ -475,7 +479,7 @@ def download_worker(
     record = item_result[0] if item_result else ItemRecord(
         video_id=video_id,
         playlist_id=playlist_id,
-        yt_title=title,
+        title=title,
         renamed_to=None,
         rename_tier=None,
         uploader=None,
@@ -494,8 +498,8 @@ def download_worker(
     size_str = _fmt_size(candidate_path) if os.path.isfile(candidate_path) else "?"
 
     logger.info("  \u2713 %s  [%s \u00b7 %ds]", filename, size_str, int(elapsed))
-    if record.rename_tier is not None and record.rename_tier != "yt_title":
-        logger.info('    Renamed: "%s" \u2192 "%s"  [%s]', record.yt_title, record.renamed_to, record.rename_tier)
+    if record.rename_tier is not None and record.rename_tier != "title":
+        logger.info('    Renamed: "%s" \u2192 "%s"  [%s]', record.title, record.renamed_to, record.rename_tier)
 
     return record, None
 
@@ -742,7 +746,7 @@ def run_sync_failed_for_playlist(
     if not failures:
         logger.info("No failures recorded for '%s'.", pname)
         return
-    entries = [{"id": f["video_id"], "url": f["url"], "title": f["yt_title"]} for f in failures]
+    entries = [{"id": f["video_id"], "url": f["url"], "title": f["title"]} for f in failures]
     options = build_options(row["format"], row["quality"] or "best")
     output_dir = row["output_dir"] or os.path.abspath(default_output_dir)
     successes, new_failures = download_parallel(

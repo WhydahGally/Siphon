@@ -40,7 +40,7 @@ class JobStore:
     ) -> str:
         job_id = str(uuid.uuid4())
         items = [
-            JobItem(video_id=e["id"], yt_title=e["title"], url=e["url"], state="pending")
+            JobItem(video_id=e["id"], title=e["title"], url=e["url"], state="pending")
             for e in entries
         ]
         job = DownloadJob(
@@ -99,7 +99,7 @@ class JobStore:
                             "job_id": job.job_id,
                             "video_id": item.video_id,
                             "state": "cancelled",
-                            "yt_title": item.yt_title,
+                            "title": item.title,
                             "renamed_to": item.renamed_to,
                             "rename_tier": item.rename_tier,
                             "error": item.error,
@@ -194,7 +194,7 @@ class JobStore:
                         "job_id": job_id,
                         "video_id": video_id,
                         "state": state,
-                        "yt_title": item.yt_title,
+                        "title": item.title,
                         "renamed_to": item.renamed_to,
                         "rename_tier": item.rename_tier,
                         "error": item.error,
@@ -235,7 +235,7 @@ class JobStore:
                     item.error = None
                     item.started_at = None
                     item.finished_at = None
-                    entries.append({"id": item.video_id, "url": item.url, "title": item.yt_title})
+                    entries.append({"id": item.video_id, "url": item.url, "title": item.title})
             if entries:
                 job.cancelled = False
         return entries
