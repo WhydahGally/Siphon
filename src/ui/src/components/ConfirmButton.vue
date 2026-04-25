@@ -53,7 +53,9 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   align-items: stretch;
+  justify-content: center;
   gap: 4px;
+  min-height: 48px; /* pre-reserves split-state height: (22 + 4 + 22)px */
 }
 
 .btn-default {
@@ -83,6 +85,7 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-sm);
   padding: 4px 10px;
   font-size: 12px;
+  line-height: 1;
   font-weight: 600;
   transition: background 0.15s;
   white-space: nowrap;
@@ -100,6 +103,7 @@ onBeforeUnmount(() => {
   border-radius: var(--radius-sm);
   padding: 4px 10px;
   font-size: 12px;
+  line-height: 1;
   font-weight: 500;
   transition: color 0.15s, border-color 0.15s;
   white-space: nowrap;

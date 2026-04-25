@@ -23,6 +23,7 @@ const editingInterval = ref(false)
 const intervalInput = ref('')
 const currentIntervalSecs = ref(props.playlist.check_interval_secs)
 const intervalEditRef = ref(null)
+const mobileIntervalEditRef = ref(null)
 let _intervalClickOutside = null
 
 const intervalDisplay = computed(() => secsToHuman(currentIntervalSecs.value))
@@ -31,9 +32,13 @@ function openIntervalEdit() {
   intervalInput.value = secsToDdhhmmss(currentIntervalSecs.value)
   editingInterval.value = true
   nextTick(() => {
-    intervalEditRef.value?.querySelector('input')?.focus()
+    // Focus whichever edit group is currently visible
+    const activeRef = mobileIntervalEditRef.value ?? intervalEditRef.value
+    activeRef?.querySelector('input')?.focus()
     _intervalClickOutside = (e) => {
-      if (intervalEditRef.value && !intervalEditRef.value.contains(e.target)) {
+      const inDesktop = intervalEditRef.value?.contains(e.target)
+      const inMobile = mobileIntervalEditRef.value?.contains(e.target)
+      if (!inDesktop && !inMobile) {
         cancelIntervalEdit()
       }
     }
@@ -178,6 +183,81 @@ onMounted(() => {
 
 <template>
   <div class="playlist-row" :class="{ expanded }">
+
+    <!-- ══ MOBILE HEADER (≤640px only) ══════════════════════════════════════ -->
+    <div class="mobile-header">
+      <div class="mobile-title-row">
+        <button
+          class="btn-sync-icon"
+          :style="{ visibility: syncing ? 'hidden' : 'visible' }"
+          title="Sync now"
+          @click="triggerSync"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="23 4 23 10 17 10"/>
+            <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+          </svg>
+        </button>
+        <span class="playlist-name mobile-name">{{ playlist.name }}</span>
+        <div class="mobile-header-actions">
+          <div class="mobile-delete">
+            <ConfirmButton label="Delete" @confirm="handleDelete">
+              <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="3 6 5 6 21 6"/>
+                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                <path d="M10 11v6M14 11v6"/>
+                <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+              </svg>
+            </ConfirmButton>
+          </div>
+        </div>
+      </div>
+      <div class="mobile-meta-area">
+        <div v-if="syncing" class="sync-indicator mobile-sync-indicator">
+          <span class="spinner" />
+          <span class="syncing-label">
+            {{ syncInfo === null ? 'Syncing…' : (syncInfo === 0 ? 'No new items found' : `${syncInfo} new item${syncInfo === 1 ? '' : 's'} found`) }}
+          </span>
+        </div>
+        <div v-else class="mobile-meta">
+          <span class="meta-item">{{ playlist.item_count }} items</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-item">Added {{ formatSyncedDate(playlist.added_at) }}</span>
+          <span class="meta-sep">·</span>
+          <span class="meta-item">{{ playlist.last_synced_at ? `Synced ${formatSyncedDate(playlist.last_synced_at)}` : 'Never synced' }}</span>
+        </div>
+      </div>
+      <div class="mobile-controls">
+        <label class="toggle-label">
+          <span class="toggle-switch">
+            <input type="checkbox" :checked="autoRename" @change="toggleAutoRename" />
+            <span class="slider" />
+          </span>
+          <span>Auto rename</span>
+        </label>
+        <label class="toggle-label">
+          <span class="toggle-switch">
+            <input type="checkbox" :checked="watched" @change="toggleWatched" />
+            <span class="slider" />
+          </span>
+          <span class="autosync-text">Auto sync
+            <template v-if="watched">&mdash;
+              <span v-if="!editingInterval" class="interval-display" @click.prevent.stop="openIntervalEdit">
+                {{ intervalDisplay }}<svg class="pencil-icon" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </span>
+              <span v-else ref="mobileIntervalEditRef" class="interval-edit-group" @click.stop>
+                <input v-model="intervalInput" class="interval-input" placeholder="DD:HH:MM:SS" @keydown.enter.prevent="saveInterval" @keydown.escape="cancelIntervalEdit" />
+                <button class="btn-save-interval" title="Save" @mousedown.stop @click="saveInterval">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </button>
+              </span>
+            </template>
+          </span>
+        </label>
+      </div>
+    </div>
+    <!-- ══ END MOBILE HEADER ═══════════════════════════════════════════════ -->
+
     <div class="row-body">
 
       <!-- Left: expand strip -->
@@ -251,7 +331,9 @@ onMounted(() => {
                   @keydown.enter.prevent="saveInterval"
                   @keydown.escape="cancelIntervalEdit"
                 />
-                <button class="btn-save-interval" @mousedown.stop @click="saveInterval">Save</button>
+                <button class="btn-save-interval" title="Save" @mousedown.stop @click="saveInterval">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+                </button>
               </span>
             </span>
           </label>
@@ -271,6 +353,16 @@ onMounted(() => {
       </div>
 
     </div>
+
+    <!-- ══ MOBILE EXPAND BAR (≤640px only) ══════════════════════════════ -->
+    <button
+      class="mobile-expand-bar"
+      :class="{ 'is-expanded': expanded }"
+      @click="toggleExpand"
+    >
+      <span class="chevron">›</span>
+    </button>
+    <!-- ══ END MOBILE EXPAND BAR ═════════════════════════════════════════ -->
 
     <!-- Items panel — full width below the three-column body -->
     <PlaylistItemsPanel
@@ -468,6 +560,7 @@ onMounted(() => {
   user-select: none;
   font-size: 13px;
   color: var(--text-muted);
+  min-height: 28px;
 }
 
 .toggle-switch {
@@ -553,11 +646,12 @@ onMounted(() => {
   border: 1px solid var(--accent);
   border-radius: var(--radius-sm);
   color: #fff;
-  padding: 4px 9px;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
+  padding: 4px 7px;
   cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
   transition: background 0.15s, border-color 0.15s;
 }
 
@@ -573,7 +667,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 10px;
+  padding: 0 10px 0 0px;
 }
 
 /* ── Spinner ─────────────────────────────────────────────────── */
@@ -589,5 +683,125 @@ onMounted(() => {
 
 @keyframes spin {
   to { transform: rotate(360deg); }
+}
+
+/* ── Mobile-only elements (hidden on desktop) ───────────────── */
+.mobile-header { display: none; }
+.mobile-expand-bar { display: none; }
+
+/* ── Mobile layout (≤640px) ─────────────────────────────────── */
+@media (max-width: 640px) {
+  /* Hide desktop-only columns */
+  .expand-strip { display: none; }
+  .row-left { display: none; }
+  .row-right { display: none; }
+  .delete-strip { display: none; }
+  .row-body { display: none; }
+
+  /* Show mobile header */
+  .mobile-header {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px 14px 8px;
+  }
+
+  .mobile-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+
+  .mobile-name {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .mobile-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .btn-sync-icon {
+    background: none;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: var(--radius-sm);
+    padding: 5px 7px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s;
+  }
+  .btn-sync-icon:hover { background: rgba(124, 106, 247, 0.1); }
+
+  .mobile-delete {
+    display: flex;
+    align-items: center;
+  }
+
+  .mobile-sync-indicator {
+    padding-top: 0;
+  }
+
+  .mobile-meta-area {
+    min-height: 36px;
+    display: flex;
+    align-items: center;
+  }
+
+  .mobile-meta-area > * {
+    width: 100%;
+  }
+
+  .mobile-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+
+  .mobile-controls {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 4px 0 4px;
+  }
+
+  /* Full-width expand bar at bottom */
+  .mobile-expand-bar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    background: transparent;
+    border: none;
+    border-top: 1px solid var(--border);
+    padding: 6px 0;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .mobile-expand-bar:hover { background: rgba(124, 106, 247, 0.07); }
+  .mobile-expand-bar .chevron {
+    font-size: 20px;
+    color: var(--text-muted);
+    transition: transform 0.22s ease, color 0.2s;
+  }
+  .mobile-expand-bar:hover .chevron { color: var(--accent); }
+  .mobile-expand-bar.is-expanded .chevron {
+    transform: rotate(90deg);
+    color: var(--accent);
+  }
+
+  .interval-input { width: 90px; }
 }
 </style>

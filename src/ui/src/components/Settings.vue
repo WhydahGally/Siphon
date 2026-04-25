@@ -13,7 +13,7 @@ const intervalSecs = ref(86400)
 const editingInterval = ref(false)
 const intervalInput = ref('')
 const { autoRename: autoRenameGlobal, browserLogs, loaded: settingsLoaded } = useSettings()
-const mbUserAgent = ref('')
+const mbEmail = ref('')
 const isDark = ref(true)
 const logLevel = ref('INFO')
 const version = ref({ siphon: '—', yt_dlp: '—' })
@@ -30,7 +30,11 @@ onMounted(async () => {
       if (s.max_concurrent_downloads) maxConcurrent.value = parseInt(s.max_concurrent_downloads, 10) || 5
       if (s.check_interval)           intervalSecs.value = parseInt(s.check_interval, 10) || 86400
       if (s.auto_rename_default === 'false') autoRenameGlobal.value = false
-      if (s.mb_user_agent)            mbUserAgent.value = s.mb_user_agent
+      if (s.mb_user_agent) {
+        // extract email from "Siphon/x.y (email)" or fall back to raw value
+        const m = s.mb_user_agent.match(/\(([^)]+)\)$/)
+        mbEmail.value = m ? m[1] : s.mb_user_agent
+      }
       if (s.theme)                    isDark.value = s.theme !== 'light'
       if (s.log_level)                logLevel.value = s.log_level
     }
@@ -113,7 +117,11 @@ function onAutoRenameToggle() {
 }
 
 // ── MusicBrainz ──────────────────────────────────────────────────────────────────
-function saveMbUserAgent() { saveSetting('mb-user-agent', mbUserAgent.value) }
+function saveMbUserAgent() {
+  const ver = version.value.siphon && version.value.siphon !== '—' ? version.value.siphon : '1.0'
+  const ua = mbEmail.value.trim() ? `Siphon/${ver} (${mbEmail.value.trim()})` : ''
+  saveSetting('mb-user-agent', ua)
+}
 
 // ── Noise patterns ───────────────────────────────────────────────────────────────
 const noisePatternsOpen = ref(false)
@@ -262,7 +270,9 @@ async function handleFactoryReset() {
               @keydown.enter.prevent="saveInterval"
               @keydown.escape="cancelIntervalEdit"
             />
-            <button class="btn-save" @mousedown.stop @click="saveInterval">Save</button>
+            <button class="btn-save" title="Save" @mousedown.stop @click="saveInterval">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
           </template>
         </div>
       </div>
@@ -289,19 +299,21 @@ async function handleFactoryReset() {
         <div class="setting-label-col">
           <span class="setting-label">MusicBrainz user-agent</span>
           <span class="setting-desc">
-            Required for metadata lookups during auto rename.
-            Format: <code>AppName/1.0 (you@example.com)</code><br />
+            Email ID required for auto renames based on MusicBrainz metadata lookup.<br />
             <span class="setting-hint">Setting this will dismiss the ⚠ warning on Dashboard.</span>
           </span>
         </div>
         <div class="setting-control-col mb-input-row">
           <input
-            v-model="mbUserAgent"
+            v-model="mbEmail"
             class="text-input"
-            placeholder="Siphon/1.0 (you@example.com)"
+            type="email"
+            placeholder="you@example.com"
             @keydown.enter="saveMbUserAgent"
           />
-          <button class="btn-primary-sm" @click="saveMbUserAgent">Save</button>
+          <button class="btn-primary-sm" title="Save" @click="saveMbUserAgent">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+          </button>
         </div>
       </div>
 
@@ -333,8 +345,12 @@ async function handleFactoryReset() {
             No patterns saved — built-in defaults are currently active.
           </span>
           <div class="noise-actions">
-            <button class="btn-primary-sm" @click="saveNoisePatterns">Save</button>
-            <button class="btn-cancel-sm" @click="cancelNoisePatterns">Cancel</button>
+            <button class="btn-primary-sm" title="Save" @click="saveNoisePatterns">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+            </button>
+            <button class="btn-cancel-sm" title="Cancel" @click="cancelNoisePatterns">
+              <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
           </div>
         </div>
       </div>
@@ -643,11 +659,12 @@ code {
 /* ── Buttons ────────────────────────────────────────────────────────────── */
 .btn-save, .btn-cancel-sm, .btn-primary-sm {
   border-radius: var(--radius-sm);
-  padding: 5px 12px;
-  font-size: 12px;
-  font-weight: 500;
+  padding: 4px 7px;
   border: 1px solid var(--border);
-  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 .btn-save, .btn-primary-sm {
   background: var(--accent);
@@ -787,14 +804,25 @@ code {
 .about-val {
   font-size: 13px;
   color: var(--text);
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .about-link {
   font-size: 13px;
   color: var(--accent);
   text-decoration: none;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-all;
 }
 .about-link:hover { text-decoration: underline; }
+
+@media (max-width: 640px) {
+  .about-grid {
+    grid-template-columns: 80px 1fr;
+  }
+}
 
 /* ── Danger zone rows ────────────────────────────────────────────────────── */
 .danger-row {
@@ -815,6 +843,9 @@ code {
   min-width: 0;
 }
 
-.danger-control-col { flex-shrink: 0; }
+.danger-control-col {
+  flex-shrink: 0;
+  width: 160px; /* wide enough for "Yes, reset everything" */
+}
 </style>
 
