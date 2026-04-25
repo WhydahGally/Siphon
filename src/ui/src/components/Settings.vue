@@ -13,7 +13,7 @@ const intervalSecs = ref(86400)
 const editingInterval = ref(false)
 const intervalInput = ref('')
 const { autoRename: autoRenameGlobal, browserLogs, loaded: settingsLoaded } = useSettings()
-const mbUserAgent = ref('')
+const mbEmail = ref('')
 const isDark = ref(true)
 const logLevel = ref('INFO')
 const version = ref({ siphon: '—', yt_dlp: '—' })
@@ -30,7 +30,11 @@ onMounted(async () => {
       if (s.max_concurrent_downloads) maxConcurrent.value = parseInt(s.max_concurrent_downloads, 10) || 5
       if (s.check_interval)           intervalSecs.value = parseInt(s.check_interval, 10) || 86400
       if (s.auto_rename_default === 'false') autoRenameGlobal.value = false
-      if (s.mb_user_agent)            mbUserAgent.value = s.mb_user_agent
+      if (s.mb_user_agent) {
+        // extract email from "Siphon/x.y (email)" or fall back to raw value
+        const m = s.mb_user_agent.match(/\(([^)]+)\)$/)
+        mbEmail.value = m ? m[1] : s.mb_user_agent
+      }
       if (s.theme)                    isDark.value = s.theme !== 'light'
       if (s.log_level)                logLevel.value = s.log_level
     }
@@ -113,7 +117,11 @@ function onAutoRenameToggle() {
 }
 
 // ── MusicBrainz ──────────────────────────────────────────────────────────────────
-function saveMbUserAgent() { saveSetting('mb-user-agent', mbUserAgent.value) }
+function saveMbUserAgent() {
+  const ver = version.value.siphon && version.value.siphon !== '—' ? version.value.siphon : '1.0'
+  const ua = mbEmail.value.trim() ? `Siphon/${ver} (${mbEmail.value.trim()})` : ''
+  saveSetting('mb-user-agent', ua)
+}
 
 // ── Noise patterns ───────────────────────────────────────────────────────────────
 const noisePatternsOpen = ref(false)
@@ -291,16 +299,16 @@ async function handleFactoryReset() {
         <div class="setting-label-col">
           <span class="setting-label">MusicBrainz user-agent</span>
           <span class="setting-desc">
-            Required for metadata lookups during auto rename.
-            Format: <code>AppName/1.0 (you@example.com)</code><br />
+            Email ID required for auto renames based on MusicBrainz metadata lookup.<br />
             <span class="setting-hint">Setting this will dismiss the ⚠ warning on Dashboard.</span>
           </span>
         </div>
         <div class="setting-control-col mb-input-row">
           <input
-            v-model="mbUserAgent"
+            v-model="mbEmail"
             class="text-input"
-            placeholder="Siphon/1.0 (you@example.com)"
+            type="email"
+            placeholder="you@example.com"
             @keydown.enter="saveMbUserAgent"
           />
           <button class="btn-primary-sm" title="Save" @click="saveMbUserAgent">
