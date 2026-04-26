@@ -133,7 +133,7 @@ npm run dev
 | `siphon delete <name>`                            | Remove a playlist from the registry.                                                                                      |
 | `siphon delete-all-playlists`                     | Remove all playlists and sync history from the registry.                                                                  |
 | `siphon factory-reset`                            | Wipe all playlists, history and settings. Downloads are not affected.                                                     |
-| `siphon config <key> [<value>]`                   | Get or set a global config value (`log-level`, `interval`, `max-concurrent-downloads`, `mb-user-agent`, `auto-rename`, `theme`, `browser-logs`, `title-noise-patterns`, `sponsorblock-enabled`, `sponsorblock-categories`). |
+| `siphon config <key> [<value>]`                   | Get or set a global config value (`log-level`, `interval`, `max-concurrent-downloads`, `mb-user-agent`, `auto-rename`, `theme`, `browser-logs`, `title-noise-patterns`, `sb-enabled`, `sb-cats`). |
 | `siphon config-playlist <name> [<key> [<value>]]` | Get or set per-playlist config (`interval`, `auto-rename`, `watched`, `sponsorblock`, `sb-cats`).                         |
 | `siphon playlist-items <name>`                    | List all downloaded items for a playlist.                                                                                 |
 | `siphon rename-item <playlist> <current-name> <new-name>` | Rename a downloaded item in a playlist. Renames the file on disk and sets the rename tier to `manual`.              |

@@ -611,12 +611,12 @@ def api_put_setting(key: str, body: SettingWrite):
                 _re.compile(p)
             except _re.error as exc:
                 raise HTTPException(status_code=400, detail=f"Invalid regex pattern '{p}': {exc}")
-    if key == "sponsorblock-categories":
+    if key == "sb-cats":
         import json as _json
         try:
             cats = _json.loads(body.value)
         except (_json.JSONDecodeError, TypeError):
-            raise HTTPException(status_code=400, detail="sponsorblock-categories must be a valid JSON array of strings.")
+            raise HTTPException(status_code=400, detail="sb-cats must be a valid JSON array of strings.")
         invalid = [c for c in cats if c not in _VALID_SB_CATEGORIES]
         if invalid:
             raise HTTPException(status_code=400, detail=f"Invalid categories: {invalid}. Valid: {sorted(_VALID_SB_CATEGORIES)}")

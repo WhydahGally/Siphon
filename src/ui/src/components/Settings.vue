@@ -201,7 +201,7 @@ function onSponsorBlockToggle() {
   if (!sponsorBlockEnabled.value) {
     sbCatsOpen.value = false
   }
-  saveSetting('sponsorblock-enabled', sponsorBlockEnabled.value ? 'true' : 'false', true)
+  saveSetting('sb-enabled', sponsorBlockEnabled.value ? 'true' : 'false', true)
 }
 
 function toggleSbCategory(key) {
@@ -216,7 +216,7 @@ function toggleSbCategory(key) {
       sbCatsOpen.value = false
     }
   }
-  saveSetting('sponsorblock-categories', JSON.stringify(sbCategories.value), true)
+  saveSetting('sb-cats', JSON.stringify(sbCategories.value), true)
 }
 
 // ── Appearance ───────────────────────────────────────────────────────────────────

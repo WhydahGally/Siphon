@@ -380,15 +380,15 @@ _KNOWN_KEYS = {
         "(e.g. '(Official Video)', '[Lyric Video]') from filenames and MB query inputs. "
         "Each string must be a valid Python regex. When unset, built-in defaults are used.",
     ),
-    "sponsorblock-enabled": (
+    "sb-enabled": (
         "sponsorblock_enabled",
         "Global default SponsorBlock state when adding a new download. Accepted: true, false. Default: true.",
     ),
-    "sponsorblock-categories": (
+    "sb-cats": (
         "sponsorblock_categories",
         "JSON array of SponsorBlock categories to remove globally. "
         "Valid: sponsor, interaction, selfpromo, intro, outro, preview, hook, filler, music_offtopic. "
-        "Default: '[\"music_offtopic\"]'.",
+        "Default: '\"music_offtopic\"'.",
     ),
 }
 
@@ -404,7 +404,7 @@ _ALLOWED_VALUES: dict = {
     "auto-rename": {"true", "false"},
     "theme": {"dark", "light"},
     "browser-logs": {"on", "off"},
-    "sponsorblock-enabled": {"true", "false"},
+    "sb-enabled": {"true", "false"},
 }
 
 _PLAYLIST_KNOWN_KEYS = {"interval", "auto-rename", "watched", "sponsorblock", "sb-cats"}
