@@ -77,15 +77,27 @@ def _normalise_url(url: str) -> str:
     This avoids yt-dlp treating the URL as a single-video context and only
     returning one entry instead of the full playlist.
     For non-YouTube URLs, the URL is returned unchanged.
+
+    Special auto-generated list types (Mix, Watch Later, etc.) are stripped
+    entirely from the URL so yt-dlp treats it as a plain single-video URL.
     """
-    from urllib.parse import urlparse, parse_qs
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
     parsed = urlparse(url)
     if parsed.netloc not in ("www.youtube.com", "youtube.com", "youtu.be"):
         return url
     qs = parse_qs(parsed.query, keep_blank_values=True)
     list_id = qs.get("list", [None])[0]
-    if list_id and "v" in qs:
-        # Has both v= and list= — normalise to clean playlist URL
+    if not list_id:
+        return url
+    # RD = Mix/Radio, WL = Watch Later, LL = Liked Videos, FL = Favourites —
+    # these are private/auto-generated and cannot be fetched as playlist URLs.
+    _UNVIEWABLE_PREFIXES = ("RD", "WL", "LL", "FL")
+    if list_id.startswith(_UNVIEWABLE_PREFIXES):
+        # Strip the list= param so yt-dlp only sees the v= and downloads one video.
+        clean_qs = {k: v for k, v in qs.items() if k != "list"}
+        return urlunparse(parsed._replace(query=urlencode(clean_qs, doseq=True)))
+    if "v" in qs:
+        # Has both v= and list= with a real playlist — normalise to clean playlist URL
         return f"https://www.youtube.com/playlist?list={list_id}"
     return url
 
