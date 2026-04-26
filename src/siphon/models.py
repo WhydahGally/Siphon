@@ -114,6 +114,8 @@ class JobCreate(BaseModel):
     auto_rename: bool = False
     watched: bool = True
     check_interval_secs: Optional[int] = None
+    sponsorblock_enabled: bool = True
+    sponsorblock_categories: Optional[List[str]] = None
 
 
 class RenameRequest(BaseModel):

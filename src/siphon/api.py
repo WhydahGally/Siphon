@@ -763,6 +763,7 @@ def api_create_job(body: JobCreate):
             )
         raise
     options = build_options(body.format, body.quality)
+    sponsorblock_categories = _resolve_sb_categories_for_job(body)
     mb_user_agent = registry.get_setting("mb_user_agent")
 
     t = threading.Thread(
@@ -779,6 +780,7 @@ def api_create_job(body: JobCreate):
             auto_rename=body.auto_rename,
             noise_patterns=registry.get_noise_patterns(),
             job_store=_job_store,
+            sponsorblock_categories=sponsorblock_categories,
         ),
         daemon=True,
     )
@@ -995,6 +997,30 @@ def _resolve_sb_categories_for_create(body) -> Optional[str]:
     if body.sponsorblock_categories is not None:
         return _json.dumps(body.sponsorblock_categories)
     return None
+
+
+def _resolve_sb_categories_for_job(body) -> Optional[list]:
+    """Resolve the effective SponsorBlock category list for a one-off job.
+
+    Jobs have no DB row — resolve directly from the request body then global settings.
+    Returns None if SponsorBlock should not be applied.
+    """
+    import json as _json
+    if not body.sponsorblock_enabled:
+        return None
+    if body.sponsorblock_categories:
+        return body.sponsorblock_categories
+    # Fall back to global settings
+    if registry.get_setting("sponsorblock_enabled") == "false":
+        return None
+    cats_raw = registry.get_setting("sponsorblock_categories")
+    if cats_raw:
+        try:
+            cats = _json.loads(cats_raw)
+            return cats if cats else None
+        except Exception:
+            pass
+    return list(registry._DEFAULT_SB_CATEGORIES)
 
 
 def _apply_sb_patch(playlist_id: str, body) -> None:

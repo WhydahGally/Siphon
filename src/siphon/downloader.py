@@ -6,6 +6,7 @@ from typing import Any, Callable, List, Optional, Tuple
 
 from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor import PostProcessor
+from yt_dlp.postprocessor import SponsorBlockPP, ModifyChaptersPP
 
 from siphon.formats import (
     DownloadOptions,
@@ -118,6 +119,16 @@ def download(
     )
 
     with YoutubeDL(ydl_opts) as ydl:
+        if options.sponsorblock_categories:
+            logger.info("SponsorBlock enabled — removing categories: %s", options.sponsorblock_categories)
+            ydl.add_post_processor(
+                SponsorBlockPP(ydl, categories=options.sponsorblock_categories),
+                when="after_filter",
+            )
+            ydl.add_post_processor(
+                ModifyChaptersPP(ydl, remove_sponsor_segments=set(options.sponsorblock_categories)),
+                when="post_process",
+            )
         ydl.add_post_processor(
             _RenamePostProcessor(
                 mb_user_agent,
@@ -182,10 +193,6 @@ def _build_ydl_opts(
         ydl_opts["writethumbnail"] = True
         ydl_opts["postprocessors"] = build_audio_postprocessors(options.audio_format)
         logger.debug("Audio format: %s | postprocessors: %s", options.audio_format, ydl_opts["postprocessors"])
-
-    if options.sponsorblock_categories:
-        ydl_opts["sponsorblock_remove"] = set(options.sponsorblock_categories)
-        logger.info("SponsorBlock enabled — removing categories: %s", options.sponsorblock_categories)
 
     logger.debug("Postprocessor chain: %s", ydl_opts.get('postprocessors', []))
     return ydl_opts
@@ -590,6 +597,7 @@ def run_download_job(
     job_store,
     auto_rename: bool = False,
     noise_patterns: Optional[list] = None,
+    sponsorblock_categories: Optional[list] = None,
 ) -> None:
     """
     Background thread: drives per-item state transitions and downloads.
@@ -601,6 +609,9 @@ def run_download_job(
         if job_store is not None:
             job_store.notify_terminal(job_id)
         return
+
+    if sponsorblock_categories:
+        options.sponsorblock_categories = sponsorblock_categories
 
     # Guard ffmpeg before dispatching threads.
     ffmpeg_needed = (
