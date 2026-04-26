@@ -252,11 +252,15 @@ def _scheduler_sync_fn(row) -> None:
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    global _scheduler, _job_store, _sync_loop, _log_loop
+    global _scheduler, _job_store, _sync_loop, _log_loop, _browser_logs_enabled
     data_dir = _resolve_data_dir()
     registry.init_db(data_dir)
     if not registry.get_setting("title_noise_patterns"):
         registry.set_setting("title_noise_patterns", json.dumps(_DEFAULT_NOISE_PATTERNS))
+    _browser_logs_enabled = registry.get_setting("browser_logs") == "on"
+    stored_log_level = registry.get_setting("log_level")
+    if stored_log_level:
+        logging.getLogger("siphon").setLevel(getattr(logging, stored_log_level, logging.INFO))
     _scheduler = PlaylistScheduler(sync_fn=_scheduler_sync_fn)
     _scheduler.start()
     _job_store = JobStore()
