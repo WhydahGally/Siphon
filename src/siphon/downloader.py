@@ -185,7 +185,7 @@ def _build_ydl_opts(
 
     if options.sponsorblock_categories:
         ydl_opts["sponsorblock_remove"] = set(options.sponsorblock_categories)
-        logger.debug("SponsorBlock categories: %s", options.sponsorblock_categories)
+        logger.info("SponsorBlock enabled — removing categories: %s", options.sponsorblock_categories)
 
     logger.debug("Postprocessor chain: %s", ydl_opts.get('postprocessors', []))
     return ydl_opts
