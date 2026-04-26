@@ -136,7 +136,7 @@ def cmd_add(args: argparse.Namespace) -> int:
         "auto_rename": args.auto_rename,
         "watched": not args.no_watch,
         "download": args.download,
-        "sponsorblock_enabled": not args.no_sponsorblock,
+        "sponsorblock_enabled": args.sponsorblock,
     }
     if args.interval is not None:
         if args.interval <= 0:

@@ -125,7 +125,7 @@ npm run dev
 | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | `siphon --help`                                   | Show all available commands.                                                                                              |
 | `siphon start`                                   | Start the Siphon daemon (required for all other commands).                                                                |
-| `siphon add <url>`                                | Register a playlist (`--download`, `--no-watch`, `--interval`, `--format`, `--quality`, `--output-dir`, `--auto-rename`, `--no-sb`). |
+| `siphon add <url>`                                | Register a playlist (`--download`, `--no-watch`, `--interval`, `--format`, `--quality`, `--output-dir`, `--auto-rename`, `--sponsorblock`). |
 | `siphon list`                                     | Show all registered playlists.                                                                                            |
 | `siphon sync [<name>]`                            | Download new items for a specific playlist or all playlists.                                                              |
 | `siphon sync-failed [<name>]`                     | Retry failed downloads for a specific playlist or all.                                                                    |

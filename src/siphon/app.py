@@ -122,8 +122,8 @@ def main() -> None:
     p_add.add_argument("--output-dir", default=_DEFAULT_OUTPUT_DIR, help="Root directory for downloads.")
     p_add.add_argument("--auto-rename", dest="auto_rename", action="store_true", default=False,
                        help="Enable auto-rename for this playlist.")
-    p_add.add_argument("--no-sb", dest="no_sponsorblock", action="store_true", default=False,
-                       help="Disable SponsorBlock removal for this playlist.")
+    p_add.add_argument("--sponsorblock", dest="sponsorblock", action="store_true", default=False,
+                       help="Enable SponsorBlock segment removal for this playlist.")
 
     # -- cancel --
     sub.add_parser("cancel", help="Cancel all active download jobs.")

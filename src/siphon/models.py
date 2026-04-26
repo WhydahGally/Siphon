@@ -90,7 +90,7 @@ class PlaylistCreate(BaseModel):
     watched: bool = True
     check_interval_secs: Optional[int] = None
     download: bool = False
-    sponsorblock_enabled: bool = True
+    sponsorblock_enabled: bool = False
     sponsorblock_categories: Optional[List[str]] = None
 
 
@@ -114,7 +114,7 @@ class JobCreate(BaseModel):
     auto_rename: bool = False
     watched: bool = True
     check_interval_secs: Optional[int] = None
-    sponsorblock_enabled: bool = True
+    sponsorblock_enabled: bool = False
     sponsorblock_categories: Optional[List[str]] = None
 
 
