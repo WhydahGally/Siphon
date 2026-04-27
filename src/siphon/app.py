@@ -122,6 +122,8 @@ def main() -> None:
     p_add.add_argument("--output-dir", default=_DEFAULT_OUTPUT_DIR, help="Root directory for downloads.")
     p_add.add_argument("--auto-rename", dest="auto_rename", action="store_true", default=False,
                        help="Enable auto-rename for this playlist.")
+    p_add.add_argument("--sponsorblock", dest="sponsorblock", action="store_true", default=False,
+                       help="Enable SponsorBlock segment removal for this playlist.")
 
     # -- cancel --
     sub.add_parser("cancel", help="Cancel all active download jobs.")
@@ -156,7 +158,7 @@ def main() -> None:
     p_cfgp = sub.add_parser("config-playlist", help="Get or set a per-playlist configuration value.")
     p_cfgp.add_argument("name", help="Playlist name to configure.")
     p_cfgp.add_argument("key", nargs="?", default=None, metavar="key",
-                        help="Setting to read or write: interval, auto-rename, watched. Omit to show all.")
+                        help="Setting to read or write: interval, auto-rename, watched, sponsorblock, sb-cats. Omit to show all.")
     p_cfgp.add_argument("value", nargs="?", default=None, help="Value to set. Omit to read the current value.")
 
     # -- playlist-items --

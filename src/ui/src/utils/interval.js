@@ -8,15 +8,15 @@ export function secsToHuman(secs) {
   secs = Number(secs)
   if (secs < 60) {
     const n = secs
-    return n === 1 ? 'Every second' : `Every ${n} seconds`
+    return `Every ${n}s`
   }
   if (secs < 3600) {
     const n = Math.floor(secs / 60)
-    return n === 1 ? 'Every minute' : `Every ${n} minutes`
+    return `Every ${n}m`
   }
   if (secs < 86400) {
     const n = Math.floor(secs / 3600)
-    return n === 1 ? 'Every hour' : `Every ${n} hours`
+    return `Every ${n}h`
   }
   const n = Math.floor(secs / 86400)
   return n === 1 ? 'Every day' : `Every ${n} days`

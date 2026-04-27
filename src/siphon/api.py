@@ -52,6 +52,11 @@ _ALL_FORMATS = sorted(VALID_AUDIO_FORMATS | VALID_VIDEO_FORMATS)
 _DEFAULT_MAX_WORKERS = 5
 _MAX_WORKERS_CEILING = 10
 
+_VALID_SB_CATEGORIES = frozenset({
+    "sponsor", "interaction", "selfpromo", "intro", "outro",
+    "preview", "hook", "filler", "music_offtopic",
+})
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -72,15 +77,27 @@ def _normalise_url(url: str) -> str:
     This avoids yt-dlp treating the URL as a single-video context and only
     returning one entry instead of the full playlist.
     For non-YouTube URLs, the URL is returned unchanged.
+
+    Special auto-generated list types (Mix, Watch Later, etc.) are stripped
+    entirely from the URL so yt-dlp treats it as a plain single-video URL.
     """
-    from urllib.parse import urlparse, parse_qs
+    from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
     parsed = urlparse(url)
     if parsed.netloc not in ("www.youtube.com", "youtube.com", "youtu.be"):
         return url
     qs = parse_qs(parsed.query, keep_blank_values=True)
     list_id = qs.get("list", [None])[0]
-    if list_id and "v" in qs:
-        # Has both v= and list= — normalise to clean playlist URL
+    if not list_id:
+        return url
+    # RD = Mix/Radio, WL = Watch Later, LL = Liked Videos, FL = Favourites —
+    # these are private/auto-generated and cannot be fetched as playlist URLs.
+    _UNVIEWABLE_PREFIXES = ("RD", "WL", "LL", "FL")
+    if list_id.startswith(_UNVIEWABLE_PREFIXES):
+        # Strip the list= param so yt-dlp only sees the v= and downloads one video.
+        clean_qs = {k: v for k, v in qs.items() if k != "list"}
+        return urlunparse(parsed._replace(query=urlencode(clean_qs, doseq=True)))
+    if "v" in qs:
+        # Has both v= and list= with a real playlist — normalise to clean playlist URL
         return f"https://www.youtube.com/playlist?list={list_id}"
     return url
 
@@ -241,16 +258,21 @@ def _scheduler_sync_fn(row) -> None:
         noise_patterns=registry.get_noise_patterns(),
         on_sync_info=_on_sync_info,
         on_sync_done=_on_sync_done,
+        sponsorblock_categories=registry.get_sponsorblock_categories(row),
     )
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    global _scheduler, _job_store, _sync_loop, _log_loop
+    global _scheduler, _job_store, _sync_loop, _log_loop, _browser_logs_enabled
     data_dir = _resolve_data_dir()
     registry.init_db(data_dir)
     if not registry.get_setting("title_noise_patterns"):
         registry.set_setting("title_noise_patterns", json.dumps(_DEFAULT_NOISE_PATTERNS))
+    _browser_logs_enabled = registry.get_setting("browser_logs") == "on"
+    stored_log_level = registry.get_setting("log_level")
+    if stored_log_level:
+        logging.getLogger("siphon").setLevel(getattr(logging, stored_log_level, logging.INFO))
     _scheduler = PlaylistScheduler(sync_fn=_scheduler_sync_fn)
     _scheduler.start()
     _job_store = JobStore()
@@ -302,6 +324,7 @@ def api_add_playlist(body: PlaylistCreate):
             watched=body.watched,
             check_interval_secs=body.check_interval_secs,
             platform=platform,
+            sponsorblock_categories=_resolve_sb_categories_for_create(body),
         )
     except ValueError:
         raise HTTPException(status_code=409, detail="Playlist already registered.")
@@ -313,6 +336,7 @@ def api_add_playlist(body: PlaylistCreate):
         mb_user_agent = registry.get_setting("mb_user_agent")
         _syncing_playlists.add(playlist_id)
         _broadcast_sync_event("sync_started", playlist_id)
+        fresh_row = registry.get_playlist_by_id(playlist_id)
         t = threading.Thread(
             target=sync_parallel,
             kwargs=dict(
@@ -328,6 +352,7 @@ def api_add_playlist(body: PlaylistCreate):
                 noise_patterns=registry.get_noise_patterns(),
                 on_sync_info=_on_sync_info,
                 on_sync_done=_on_sync_done,
+                sponsorblock_categories=registry.get_sponsorblock_categories(fresh_row),
             ),
             daemon=True,
         )
@@ -445,6 +470,8 @@ def api_patch_playlist(playlist_id: str, body: PlaylistPatch):
         registry.set_playlist_interval(playlist_id, body.check_interval_secs)
     if body.auto_rename is not None:
         registry.set_playlist_auto_rename(playlist_id, body.auto_rename)
+    if body.sponsorblock_enabled is not None or body.sponsorblock_categories is not None:
+        _apply_sb_patch(playlist_id, body)
     if _scheduler is not None:
         _scheduler.reschedule_playlist(playlist_id)
     return _playlist_to_dict(registry.get_playlist_by_id(playlist_id))
@@ -472,6 +499,7 @@ def api_sync_playlist(playlist_id: str):
             noise_patterns=registry.get_noise_patterns(),
             on_sync_info=_on_sync_info,
             on_sync_done=_on_sync_done,
+            sponsorblock_categories=registry.get_sponsorblock_categories(row),
         ),
         daemon=True,
     )
@@ -583,6 +611,15 @@ def api_put_setting(key: str, body: SettingWrite):
                 _re.compile(p)
             except _re.error as exc:
                 raise HTTPException(status_code=400, detail=f"Invalid regex pattern '{p}': {exc}")
+    if key == "sb-cats":
+        import json as _json
+        try:
+            cats = _json.loads(body.value)
+        except (_json.JSONDecodeError, TypeError):
+            raise HTTPException(status_code=400, detail="sb-cats must be a valid JSON array of strings.")
+        invalid = [c for c in cats if c not in _VALID_SB_CATEGORIES]
+        if invalid:
+            raise HTTPException(status_code=400, detail=f"Invalid categories: {invalid}. Valid: {sorted(_VALID_SB_CATEGORIES)}")
     db_key = _KNOWN_KEYS[key][0]
     registry.set_setting(db_key, body.value)
     # Live propagation for log-level and browser-logs settings.
@@ -726,6 +763,7 @@ def api_create_job(body: JobCreate):
             )
         raise
     options = build_options(body.format, body.quality)
+    sponsorblock_categories = _resolve_sb_categories_for_job(body)
     mb_user_agent = registry.get_setting("mb_user_agent")
 
     t = threading.Thread(
@@ -742,6 +780,7 @@ def api_create_job(body: JobCreate):
             auto_rename=body.auto_rename,
             noise_patterns=registry.get_noise_patterns(),
             job_store=_job_store,
+            sponsorblock_categories=sponsorblock_categories,
         ),
         daemon=True,
     )
@@ -919,6 +958,7 @@ def api_retry_failed_job(job_id: str):
     auto_rename = bool(row["auto_rename"]) if row else False
     options = build_options(fmt, quality)
     mb_user_agent = registry.get_setting("mb_user_agent")
+    sb_cats = registry.get_sponsorblock_categories(row) if row else list(registry._DEFAULT_SB_CATEGORIES)
 
     t = threading.Thread(
         target=run_download_job,
@@ -934,6 +974,7 @@ def api_retry_failed_job(job_id: str):
             auto_rename=auto_rename,
             noise_patterns=registry.get_noise_patterns(),
             job_store=_job_store,
+            sponsorblock_categories=sb_cats,
         ),
         daemon=True,
     )
@@ -945,6 +986,67 @@ def api_retry_failed_job(job_id: str):
 # Internal helpers for API handlers
 # ------------------------------------------------------------------
 
+def _resolve_sb_categories_for_create(body) -> Optional[str]:
+    """Return the JSON-encoded categories string (or None) to store at create time.
+
+    If sponsorblock_enabled=False → store "" (force-disable).
+    If categories explicitly provided → JSON-encode them.
+    Otherwise → store None (inherit global at sync time).
+    """
+    import json as _json
+    if not body.sponsorblock_enabled:
+        return ""
+    if body.sponsorblock_categories is not None:
+        return _json.dumps(body.sponsorblock_categories)
+    return None
+
+
+def _resolve_sb_categories_for_job(body) -> Optional[list]:
+    """Resolve the effective SponsorBlock category list for a one-off job.
+
+    Jobs have no DB row — resolve directly from the request body then global settings.
+    Returns None if SponsorBlock should not be applied.
+    """
+    import json as _json
+    if not body.sponsorblock_enabled:
+        return None
+    if body.sponsorblock_categories:
+        return body.sponsorblock_categories
+    # Fall back to global settings
+    if registry.get_setting("sponsorblock_enabled") == "false":
+        return None
+    cats_raw = registry.get_setting("sponsorblock_categories")
+    if cats_raw:
+        try:
+            cats = _json.loads(cats_raw)
+            return cats if cats else None
+        except Exception:
+            pass
+    return list(registry._DEFAULT_SB_CATEGORIES)
+
+
+def _apply_sb_patch(playlist_id: str, body) -> None:
+    """Apply sponsorblock_enabled / sponsorblock_categories from a PlaylistPatch."""
+    import json as _json
+    row = registry.get_playlist_by_id(playlist_id)
+    if row is None:
+        return
+    if body.sponsorblock_enabled is False:
+        registry.set_playlist_sponsorblock(playlist_id, "")
+        return
+    if body.sponsorblock_categories is not None:
+        # Empty list → force-disable
+        if not body.sponsorblock_categories:
+            registry.set_playlist_sponsorblock(playlist_id, "")
+        else:
+            registry.set_playlist_sponsorblock(playlist_id, _json.dumps(body.sponsorblock_categories))
+        return
+    if body.sponsorblock_enabled is True:
+        # Re-enable: if currently force-disabled, revert to global (NULL)
+        if row["sponsorblock_categories"] == "":
+            registry.set_playlist_sponsorblock(playlist_id, None)
+
+
 def _playlist_to_dict(row) -> dict:
     if row is None:
         return {}
@@ -952,6 +1054,13 @@ def _playlist_to_dict(row) -> dict:
     d["item_count"] = registry.count_items(row["id"])
     d["is_syncing"] = row["id"] in _syncing_playlists
     d["sync_info"] = _sync_info.get(row["id"])
+    # Expose sponsorblock_enabled as a derived bool for the UI
+    sb_cats = d.get("sponsorblock_categories")
+    if sb_cats is None:
+        # NULL = using global; reflect global enabled state
+        d["sponsorblock_enabled"] = registry.get_setting("sponsorblock_enabled") != "false"
+    else:
+        d["sponsorblock_enabled"] = sb_cats != ""
     return d
 
 
