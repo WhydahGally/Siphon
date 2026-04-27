@@ -958,6 +958,7 @@ def api_retry_failed_job(job_id: str):
     auto_rename = bool(row["auto_rename"]) if row else False
     options = build_options(fmt, quality)
     mb_user_agent = registry.get_setting("mb_user_agent")
+    sb_cats = registry.get_sponsorblock_categories(row) if row else list(registry._DEFAULT_SB_CATEGORIES)
 
     t = threading.Thread(
         target=run_download_job,
@@ -973,6 +974,7 @@ def api_retry_failed_job(job_id: str):
             auto_rename=auto_rename,
             noise_patterns=registry.get_noise_patterns(),
             job_store=_job_store,
+            sponsorblock_categories=sb_cats,
         ),
         daemon=True,
     )
