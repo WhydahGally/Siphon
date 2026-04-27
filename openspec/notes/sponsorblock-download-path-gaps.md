@@ -1,5 +1,7 @@
 # SponsorBlock — Download Path Gaps
 
+Dev notes: This doc isn't limited to sponsorblock, but streamlining the core download flow. We need only one downloader function at the lowest level.
+
 ## Context
 
 SponsorBlock integration wires `sponsorblock_categories` into `DownloadOptions`, which
