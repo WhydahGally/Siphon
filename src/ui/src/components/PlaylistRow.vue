@@ -263,7 +263,7 @@ onMounted(() => {
             <input type="checkbox" :checked="watched" @change="toggleWatched" />
             <span class="slider" />
           </span>
-          <span class="autosync-text">Auto sync
+          <span class="autosync-text">Sync
             <template v-if="watched"> ·
               <span v-if="!editingInterval" class="interval-display" @click.prevent.stop="openIntervalEdit">
                 {{ intervalDisplay }}<svg class="pencil-icon" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
@@ -348,7 +348,7 @@ onMounted(() => {
               <input type="checkbox" :checked="watched" @change="toggleWatched" />
               <span class="slider" />
             </span>
-            <span class="autosync-text">Auto sync<template v-if="watched"> ·
+            <span class="autosync-text">Sync<template v-if="watched"> ·
               <span
                 v-if="!editingInterval"
                 class="interval-display"
@@ -423,7 +423,7 @@ onMounted(() => {
 /* ── Four-column body ───────────────────────────────────────── */
 .row-body {
   display: grid;
-  grid-template-columns: 52px 250px 1fr 76px;
+  grid-template-columns: 52px 232px minmax(0, 1fr) 76px;
   align-items: stretch;
 }
 
@@ -570,10 +570,12 @@ onMounted(() => {
 .controls-group {
   display: flex;
   align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
+  gap: 12px;
+  flex-wrap: nowrap;
   flex: 1;
   margin-top: 5px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .btn-sync {
@@ -603,6 +605,7 @@ onMounted(() => {
   font-size: 13px;
   color: var(--text-muted);
   min-height: 28px;
+  white-space: nowrap;
 }
 
 .toggle-switch {
