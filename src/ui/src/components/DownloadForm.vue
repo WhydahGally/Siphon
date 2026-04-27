@@ -377,17 +377,19 @@ async function handleDownload() {
 .toggle-label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
   user-select: none;
-  font-size: 14px;
+  font-size: 13px;
+  color: var(--text-muted);
   min-height: 28px;
 }
 
 .toggle-switch {
   position: relative;
-  width: 36px;
-  height: 20px;
+  width: 32px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 .toggle-switch input {
@@ -400,7 +402,7 @@ async function handleDownload() {
 .slider {
   position: absolute;
   inset: 0;
-  border-radius: 20px;
+  border-radius: 18px;
   background: var(--border);
   transition: background 0.2s;
 }
@@ -408,8 +410,8 @@ async function handleDownload() {
 .slider::before {
   content: '';
   position: absolute;
-  height: 14px;
-  width: 14px;
+  height: 12px;
+  width: 12px;
   left: 3px;
   top: 3px;
   border-radius: 50%;
@@ -422,7 +424,7 @@ async function handleDownload() {
 }
 
 .toggle-switch input:checked + .slider::before {
-  transform: translateX(16px);
+  transform: translateX(14px);
   background: #fff;
 }
 
@@ -439,16 +441,22 @@ async function handleDownload() {
 }
 
 .interval-display {
-  color: var(--text-muted);
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  vertical-align: middle;
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 1px;
+  transition: color 0.15s, border-color 0.15s;
 }
-.interval-display:hover { color: var(--text); }
 
-.pencil-icon { opacity: 0.5; flex-shrink: 0; }
+.interval-display:hover {
+  color: var(--text);
+  border-bottom-color: var(--text-muted);
+}
+
+.pencil-icon {
+  vertical-align: middle;
+  margin-left: 3px;
+  opacity: 0.5;
+}
 
 .interval-input {
   width: 130px;
