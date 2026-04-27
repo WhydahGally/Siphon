@@ -37,6 +37,10 @@ onMounted(async () => {
       }
       if (s.theme)                    isDark.value = s.theme !== 'light'
       if (s.log_level)                logLevel.value = s.log_level
+      if (s.sponsorblock_enabled === 'false') sponsorBlockEnabled.value = false
+      if (s.sponsorblock_categories) {
+        try { sbCategories.value = JSON.parse(s.sponsorblock_categories) } catch {}
+      }
     }
   } catch { /* daemon not reachable */ }
 
@@ -173,6 +177,46 @@ async function saveNoisePatterns() {
   } catch {
     showToast('Could not reach the daemon.', 'error')
   }
+}
+
+// ── SponsorBlock ─────────────────────────────────────────────────────────────────
+const sponsorBlockEnabled = ref(true)
+const sbCatsOpen = ref(false)
+
+const SB_CATEGORIES = [
+  { key: 'sponsor',       label: 'Sponsor' },
+  { key: 'selfpromo',     label: 'Self-promo' },
+  { key: 'interaction',   label: 'Interaction' },
+  { key: 'intro',         label: 'Intro' },
+  { key: 'outro',         label: 'Outro' },
+  { key: 'preview',       label: 'Preview' },
+  { key: 'hook',          label: 'Hook' },
+  { key: 'filler',        label: 'Filler' },
+  { key: 'music_offtopic', label: 'Non-music' },
+]
+const sbCategories = ref(['music_offtopic'])
+
+function onSponsorBlockToggle() {
+  sponsorBlockEnabled.value = !sponsorBlockEnabled.value
+  if (!sponsorBlockEnabled.value) {
+    sbCatsOpen.value = false
+  }
+  saveSetting('sb-enabled', sponsorBlockEnabled.value ? 'true' : 'false', true)
+}
+
+function toggleSbCategory(key) {
+  if (!sponsorBlockEnabled.value) return
+  const idx = sbCategories.value.indexOf(key)
+  if (idx === -1) {
+    sbCategories.value = [...sbCategories.value, key]
+  } else {
+    sbCategories.value = sbCategories.value.filter(k => k !== key)
+    if (sbCategories.value.length === 0) {
+      sponsorBlockEnabled.value = false
+      sbCatsOpen.value = false
+    }
+  }
+  saveSetting('sb-cats', JSON.stringify(sbCategories.value), true)
 }
 
 // ── Appearance ───────────────────────────────────────────────────────────────────
@@ -351,6 +395,56 @@ async function handleFactoryReset() {
             <button class="btn-cancel-sm" title="Cancel" @click="cancelNoisePatterns">
               <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
             </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── SponsorBlock ───────────────────────────────────────────────────── -->
+    <section class="settings-section">
+      <h3 class="section-heading">SponsorBlock</h3>
+
+      <div class="setting-row">
+        <div class="setting-label-col">
+          <span class="setting-label">Remove segments</span>
+          <span class="setting-desc">
+            Automatically remove segments using the
+            <a href="https://sponsor.ajay.app" target="_blank" rel="noopener noreferrer" class="about-link">SponsorBlock ↗</a>
+            community database.<br />
+            Requires ffmpeg (included in the Docker image).
+          </span>
+        </div>
+        <div class="setting-control-col">
+          <label class="toggle-switch">
+            <input type="checkbox" :checked="sponsorBlockEnabled" @change="onSponsorBlockToggle" />
+            <span class="slider" />
+          </label>
+        </div>
+      </div>
+
+      <div class="noise-disclosure" :class="{ 'noise-disclosure--open': sbCatsOpen }">
+        <div
+          class="noise-disclosure-header"
+          :style="!sponsorBlockEnabled ? 'pointer-events: none; opacity: 0.4;' : ''"
+          @click="sponsorBlockEnabled && (sbCatsOpen = !sbCatsOpen)"
+        >
+          <div class="setting-label-col">
+            <span class="setting-label">Categories</span>
+            <span class="setting-desc">Select the segment types to remove.</span>
+          </div>
+          <button class="noise-expand-strip" :class="{ 'is-expanded': sbCatsOpen }">
+            <span class="chevron">›</span>
+          </button>
+        </div>
+        <div v-if="sbCatsOpen" class="noise-disclosure-body">
+          <div class="sb-chips">
+            <button
+              v-for="cat in SB_CATEGORIES"
+              :key="cat.key"
+              class="sb-chip"
+              :class="{ 'sb-chip--active': sbCategories.includes(cat.key) }"
+              @click="toggleSbCategory(cat.key)"
+            >{{ cat.label }}</button>
           </div>
         </div>
       </div>
@@ -768,6 +862,45 @@ code {
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+/* ── SponsorBlock chips ──────────────────────────────────────────────────── */
+.sb-chips {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px 64px;
+  padding: 4px 0 8px;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.sb-chip {
+  padding: 6px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.sb-chip--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+@media (max-width: 480px) {
+  .sb-chips {
+    gap: 5px;
+    max-width: 260px;
+  }
+  .sb-chip {
+    padding: 5px 8px;
+    font-size: 11px;
+  }
 }
 
 /* ── Theme toggle ────────────────────────────────────────────────────────── */

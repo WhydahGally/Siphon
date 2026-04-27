@@ -6,13 +6,15 @@ import { useSettings } from '../composables/useSettings.js'
 
 const emit = defineEmits(['job-created'])
 const { showToast } = useToast()
-const { autoRename: globalAutoRename, loaded: settingsLoaded } = useSettings()
+const { autoRename: globalAutoRename, sponsorBlockEnabled: globalSponsorBlock, loaded: settingsLoaded } = useSettings()
 
 const url = ref('')
 const format = ref('mp3')
 const quality = ref('best')
 const autoRename = ref(globalAutoRename.value)
 watch(settingsLoaded, () => { autoRename.value = globalAutoRename.value }, { once: true })
+const sponsorBlock = ref(globalSponsorBlock.value)
+watch(settingsLoaded, () => { sponsorBlock.value = globalSponsorBlock.value }, { once: true })
 const autoSync = ref(true)
 const interval = ref(86400)
 const editingInterval = ref(false)
@@ -108,6 +110,7 @@ async function handleDownload() {
     quality: isAudio.value ? 'best' : quality.value,
     auto_rename: autoRename.value,
     watched: isPlaylist.value ? autoSync.value : false,
+    sponsorblock_enabled: sponsorBlock.value,
   }
   if (isPlaylist.value && autoSync.value && interval.value) {
     body.check_interval_secs = Number(interval.value)
@@ -207,13 +210,22 @@ async function handleDownload() {
         >⚠</span>
       </label>
 
+      <!-- SponsorBlock -->
+      <label v-if="settingsLoaded" class="toggle-label">
+        <span class="toggle-switch">
+          <input v-model="sponsorBlock" type="checkbox" :disabled="loading" />
+          <span class="slider" />
+        </span>
+        <span>SponsorBlock</span>
+      </label>
+
       <!-- Auto sync (playlist only) — interval is inline -->
       <label v-if="isPlaylist" class="toggle-label">
         <span class="toggle-switch">
           <input v-model="autoSync" type="checkbox" :disabled="loading" />
           <span class="slider" />
         </span>
-        <span>Auto sync<template v-if="autoSync"> &mdash;
+        <span>Sync<template v-if="autoSync"> ·
           <span v-if="!editingInterval" class="interval-display" @click.stop.prevent="openIntervalEdit">
             {{ intervalDisplay }}
             <svg class="pencil-icon" xmlns="http://www.w3.org/2000/svg" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -365,17 +377,19 @@ async function handleDownload() {
 .toggle-label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   cursor: pointer;
   user-select: none;
-  font-size: 14px;
+  font-size: 13px;
+  color: var(--text-muted);
   min-height: 28px;
 }
 
 .toggle-switch {
   position: relative;
-  width: 36px;
-  height: 20px;
+  width: 32px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 .toggle-switch input {
@@ -388,7 +402,7 @@ async function handleDownload() {
 .slider {
   position: absolute;
   inset: 0;
-  border-radius: 20px;
+  border-radius: 18px;
   background: var(--border);
   transition: background 0.2s;
 }
@@ -396,8 +410,8 @@ async function handleDownload() {
 .slider::before {
   content: '';
   position: absolute;
-  height: 14px;
-  width: 14px;
+  height: 12px;
+  width: 12px;
   left: 3px;
   top: 3px;
   border-radius: 50%;
@@ -410,7 +424,7 @@ async function handleDownload() {
 }
 
 .toggle-switch input:checked + .slider::before {
-  transform: translateX(16px);
+  transform: translateX(14px);
   background: #fff;
 }
 
@@ -427,16 +441,22 @@ async function handleDownload() {
 }
 
 .interval-display {
-  color: var(--text-muted);
   cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  vertical-align: middle;
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 1px;
+  transition: color 0.15s, border-color 0.15s;
 }
-.interval-display:hover { color: var(--text); }
 
-.pencil-icon { opacity: 0.5; flex-shrink: 0; }
+.interval-display:hover {
+  color: var(--text);
+  border-bottom-color: var(--text-muted);
+}
+
+.pencil-icon {
+  vertical-align: middle;
+  margin-left: 3px;
+  opacity: 0.5;
+}
 
 .interval-input {
   width: 130px;

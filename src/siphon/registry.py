@@ -26,18 +26,19 @@ _local = threading.local()
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS playlists (
-    id                  TEXT PRIMARY KEY,
-    name                TEXT NOT NULL,
-    url                 TEXT NOT NULL,
-    format              TEXT NOT NULL DEFAULT 'mp3',
-    quality             TEXT NOT NULL DEFAULT 'best',
-    output_dir          TEXT NOT NULL,
-    auto_rename         INTEGER NOT NULL DEFAULT 0,
-    watched             INTEGER NOT NULL DEFAULT 1,
-    check_interval_secs INTEGER,
-    added_at            TEXT NOT NULL,
-    last_synced_at      TEXT,
-    platform            TEXT
+    id                      TEXT PRIMARY KEY,
+    name                    TEXT NOT NULL,
+    url                     TEXT NOT NULL,
+    format                  TEXT NOT NULL DEFAULT 'mp3',
+    quality                 TEXT NOT NULL DEFAULT 'best',
+    output_dir              TEXT NOT NULL,
+    auto_rename             INTEGER NOT NULL DEFAULT 0,
+    watched                 INTEGER NOT NULL DEFAULT 1,
+    check_interval_secs     INTEGER,
+    added_at                TEXT NOT NULL,
+    last_synced_at          TEXT,
+    platform                TEXT,
+    sponsorblock_categories TEXT
 );
 
 CREATE TABLE IF NOT EXISTS items (
@@ -100,6 +101,12 @@ def init_db(data_dir: str) -> None:
     # WAL mode: allows concurrent readers, serialises writers internally.
     conn.execute("PRAGMA journal_mode=WAL")
     conn.executescript(_SCHEMA)
+    # Additive migrations: safe to run on existing databases.
+    try:
+        conn.execute("ALTER TABLE playlists ADD COLUMN sponsorblock_categories TEXT")
+        conn.commit()
+    except Exception:
+        pass  # Column already exists
     conn.commit()
     # Store as the calling thread's connection.
     _local.conn = conn
@@ -168,6 +175,7 @@ def add_playlist(
     watched: bool = True,
     check_interval_secs: Optional[int] = None,
     platform: Optional[str] = None,
+    sponsorblock_categories: Optional[str] = None,
 ) -> None:
     """Insert a new playlist. Raises ValueError if the playlist ID already exists."""
     conn = _get_conn()
@@ -177,8 +185,8 @@ def add_playlist(
     if existing:
         raise ValueError(f"Playlist '{playlist_id}' is already registered.")
     conn.execute(
-        "INSERT INTO playlists (id, name, url, format, quality, output_dir, auto_rename, watched, check_interval_secs, added_at, last_synced_at, platform) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)",
-        (playlist_id, name, url, fmt, quality, output_dir, int(auto_rename), int(watched), check_interval_secs, _now(), platform),
+        "INSERT INTO playlists (id, name, url, format, quality, output_dir, auto_rename, watched, check_interval_secs, added_at, last_synced_at, platform, sponsorblock_categories) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)",
+        (playlist_id, name, url, fmt, quality, output_dir, int(auto_rename), int(watched), check_interval_secs, _now(), platform, sponsorblock_categories),
     )
     conn.commit()
 
@@ -264,6 +272,21 @@ def set_playlist_auto_rename(playlist_id: str, auto_rename: bool) -> None:
     conn.execute(
         "UPDATE playlists SET auto_rename = ? WHERE id = ?",
         (int(auto_rename), playlist_id),
+    )
+    conn.commit()
+
+
+def set_playlist_sponsorblock(playlist_id: str, categories: Optional[str]) -> None:
+    """Set the per-playlist sponsorblock_categories value.
+
+    Pass None to revert to global default.
+    Pass "" to force-disable SponsorBlock for this playlist.
+    Pass a JSON-encoded array string to set specific categories.
+    """
+    conn = _get_conn()
+    conn.execute(
+        "UPDATE playlists SET sponsorblock_categories = ? WHERE id = ?",
+        (categories, playlist_id),
     )
     conn.commit()
 
@@ -551,3 +574,46 @@ def get_noise_patterns() -> Optional[list]:
         return json.loads(raw)
     except Exception:
         return None
+
+
+_DEFAULT_SB_CATEGORIES = ["music_offtopic"]
+
+
+def get_sponsorblock_categories(playlist_row) -> Optional[list]:
+    """Resolve the effective SponsorBlock category list for a playlist row.
+
+    Resolution order:
+    1. playlist.sponsorblock_categories (if non-NULL):
+       - empty string ``""`` → force-disabled, return None
+       - non-empty JSON → parse and return
+    2. global sponsorblock-enabled setting (if ``"false"`` → return None)
+    3. global sponsorblock-categories setting (parse JSON or use default)
+    Returns None when SponsorBlock should not be applied.
+    """
+    import json as _json
+
+    per_playlist = playlist_row["sponsorblock_categories"] if playlist_row else None
+
+    if per_playlist is not None:
+        if per_playlist == "":
+            return None
+        try:
+            cats = _json.loads(per_playlist)
+            return cats if cats else None
+        except Exception:
+            return None
+
+    # Fall back to global
+    enabled_raw = get_setting("sponsorblock_enabled")
+    if enabled_raw == "false":
+        return None
+
+    cats_raw = get_setting("sponsorblock_categories")
+    if cats_raw:
+        try:
+            cats = _json.loads(cats_raw)
+            return cats if cats else None
+        except Exception:
+            pass
+
+    return list(_DEFAULT_SB_CATEGORIES)

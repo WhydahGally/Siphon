@@ -51,11 +51,20 @@ jobs:
           git commit -m "chore: bump yt-dlp to ${{ steps.check.outputs.latest }}"
           git push -f origin chore/bump-ytdlp
           gh pr create \
-            --base main \
+            --base develop \
             --title "chore: bump yt-dlp to ${{ steps.check.outputs.latest }}" \
             --body "Bumps yt-dlp from \`${{ steps.check.outputs.current }}\` to \`${{ steps.check.outputs.latest }}\`.
 
           [Release notes](https://github.com/yt-dlp/yt-dlp/releases/tag/${{ steps.check.outputs.latest }})"
+
+      - name: Summary
+        if: always()
+        run: |
+          if [ "${{ steps.check.outputs.up_to_date }}" = "true" ]; then
+            echo "### yt-dlp is already up to date: \`${{ steps.check.outputs.current }}\`" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### yt-dlp bumped: \`${{ steps.check.outputs.current }}\` → \`${{ steps.check.outputs.latest }}\`" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Trigger e2e tests on bump branch
         if: steps.check.outputs.up_to_date == 'false'
