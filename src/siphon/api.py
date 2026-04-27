@@ -472,7 +472,7 @@ def api_patch_playlist(playlist_id: str, body: PlaylistPatch):
         registry.set_playlist_auto_rename(playlist_id, body.auto_rename)
     if body.sponsorblock_enabled is not None or body.sponsorblock_categories is not None:
         _apply_sb_patch(playlist_id, body)
-    if _scheduler is not None:
+    if _scheduler is not None and (body.watched is not None or body.check_interval_secs is not None):
         _scheduler.reschedule_playlist(playlist_id)
     return _playlist_to_dict(registry.get_playlist_by_id(playlist_id))
 
