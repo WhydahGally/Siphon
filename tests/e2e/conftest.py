@@ -37,6 +37,8 @@ _SETTINGS_DB_TO_API = {
     "theme": "theme",
     "browser_logs": "browser-logs",
     "title_noise_patterns": "title-noise-patterns",
+    "sponsorblock_enabled": "sb-enabled",
+    "sponsorblock_categories": "sb-cats",
 }
 
 
@@ -222,13 +224,15 @@ def daemon(preflight):
         proc.wait()
         pytest.fail("Siphon daemon did not become healthy within 30 seconds.")
 
-    # Factory reset -- wipe any leftover state from previous runs
-    session.post(f"{BASE_URL}/factory-reset")
-
-    # Snapshot settings and existing downloads so we can restore them after the run
+    # Snapshot settings and existing downloads BEFORE factory reset so we can restore them after the run
     settings_snapshot = session.get(f"{BASE_URL}/settings").json()
     session.close()
     downloads_snapshot = _snapshot_downloads()
+
+    # Factory reset -- wipe any leftover state from previous runs
+    session2 = requests.Session()
+    session2.post(f"{BASE_URL}/factory-reset")
+    session2.close()
 
     yield
 
@@ -243,8 +247,7 @@ def daemon(preflight):
                     restore.put(f"{BASE_URL}/settings/{api_key}", json={"value": original_value})
     finally:
         restore.close()
-
-    _cleanup_downloads(downloads_snapshot)
+        _cleanup_downloads(downloads_snapshot)
 
     proc.terminate()
     proc.wait()
