@@ -108,44 +108,6 @@ def _downloads_has_files() -> bool:
     return False
 
 
-def _snapshot_downloads() -> set:
-    """Return the set of absolute paths for all non-hidden files in downloads/."""
-    snapshot: set = set()
-    if not os.path.isdir(_DOWNLOADS_DIR):
-        return snapshot
-    for root, _dirs, files in os.walk(_DOWNLOADS_DIR):
-        for f in files:
-            if not f.startswith("."):
-                snapshot.add(os.path.join(root, f))
-    return snapshot
-
-
-def _cleanup_downloads(before: set) -> None:
-    """Delete files created during the test run and prune empty subdirectories."""
-    if not os.path.isdir(_DOWNLOADS_DIR):
-        return
-    for root, _dirs, files in os.walk(_DOWNLOADS_DIR):
-        for f in files:
-            if f.startswith("."):
-                continue
-            path = os.path.join(root, f)
-            if path not in before:
-                try:
-                    os.remove(path)
-                except OSError:
-                    pass
-    # Prune empty subdirectories (bottom-up)
-    for root, _dirs, _files in os.walk(_DOWNLOADS_DIR, topdown=False):
-        if root == _DOWNLOADS_DIR:
-            continue
-        remaining = [e for e in os.listdir(root) if not e.startswith(".")]
-        if not remaining:
-            try:
-                os.rmdir(root)
-            except OSError:
-                pass
-
-
 # ---------------------------------------------------------------------------
 # Session-scoped fixtures
 # ---------------------------------------------------------------------------
@@ -224,10 +186,9 @@ def daemon(preflight):
         proc.wait()
         pytest.fail("Siphon daemon did not become healthy within 30 seconds.")
 
-    # Snapshot settings and existing downloads BEFORE factory reset so we can restore them after the run
+    # Snapshot settings BEFORE factory reset so we can restore them after the run
     settings_snapshot = session.get(f"{BASE_URL}/settings").json()
     session.close()
-    downloads_snapshot = _snapshot_downloads()
 
     # Factory reset -- wipe any leftover state from previous runs
     session2 = requests.Session()
@@ -247,7 +208,6 @@ def daemon(preflight):
                     restore.put(f"{BASE_URL}/settings/{api_key}", json={"value": original_value})
     finally:
         restore.close()
-        _cleanup_downloads(downloads_snapshot)
 
     proc.terminate()
     proc.wait()
