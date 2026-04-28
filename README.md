@@ -8,15 +8,14 @@ Siphon is primarily developed using spec-driven development through [OpenSpec](h
 
 ## Features
 
-- **Download** — Download entire playlists or single videos.
+- **Download** — Entire playlists or single videos, with configurable concurrent workers.
 - **Format selection** — Download audio (MP3, OPUS) or video formats (MP4, MKV, WEBM) with quality options.
-- **Parallel downloads** — Configurable concurrent downloads (1–10 workers).
-- **Playlist watching** — Monitors playlists and auto-downloads newly added videos.
+- **Playlist sync** — Monitors playlists and auto-downloads newly added videos.
 - **Scheduled syncing** — Configurable per-playlist sync intervals (hourly, daily, whatever you want).
 - **Smart auto-renaming** — Cleans up filenames and titles using embedded metadata and MusicBrainz lookups.
 - **Manual renaming** — Manually rename individual downloaded items from the Web UI or CLI. Changes are applied on disk and in metadata.
 - **SponsorBlock integration** — Automatically removes sponsor segments, intros, outros and non-music sections from downloads using the [SponsorBlock](https://sponsor.ajay.app) community database.
-- **Cookie support** — Upload a Netscape-format browser cookie file to unlock private playlists, age-restricted videos, and members-only content.
+- **Cookie support** — Upload a [browser cookie](#browser-cookies) file to unlock private playlists, age-restricted videos, and members-only content.
 - **Audio metadata embedding** — Embeds artist, title, album and cover art into audio files.
 - **Web UI** — Manage playlists, view download history, configure settings and monitor progress from your browser.
 - **CLI** — Full command-line interface for automation, scripting and debugging.
