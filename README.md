@@ -30,7 +30,7 @@ Siphon is primarily developed using spec-driven development through [OpenSpec](h
 <img width="1728" height="1084" alt="Screenshot 2026-04-12 at 23 51 04" src="https://github.com/user-attachments/assets/81439fcc-e36f-4d4d-b521-a5fc9efe6a75" />
 
 
-## Installation
+## Setup
 
 ### Unraid
 
@@ -216,12 +216,12 @@ Siphon writes a rolling log file to `.data/siphon.log` (5 MB max, 1 backup). In 
 
 Siphon supports four log levels, configurable via the CLI or the Settings page in the web UI:
 
-| Level | Description |
-|---|---|
-| `DEBUG` | Verbose output including yt-dlp internals. Use when diagnosing issues. |
-| `INFO` | Normal operation. Shows sync activity, downloads and renames. (default) |
-| `WARNING` | Only warnings and errors. |
-| `ERROR` | Only errors. |
+|   Level   |                               Description                               |
+| --------- | ----------------------------------------------------------------------- |
+| `DEBUG`   | Verbose output including yt-dlp internals. Use when diagnosing issues.  |
+| `INFO`    | Normal operation. Shows sync activity, downloads and renames. (default) |
+| `WARNING` | Only warnings and errors.                                               |
+| `ERROR`   | Only errors.                                                            |
 
 Set the log level:
 ```bash
