@@ -12,7 +12,7 @@ const maxConcurrent = ref(5)
 const intervalSecs = ref(86400)
 const editingInterval = ref(false)
 const intervalInput = ref('')
-const { autoRename: autoRenameGlobal, browserLogs, loaded: settingsLoaded } = useSettings()
+const { autoRename: autoRenameGlobal, browserLogs, cookiesEnabled, cookieFileSet, loaded: settingsLoaded } = useSettings()
 const mbEmail = ref('')
 const isDark = ref(true)
 const logLevel = ref('INFO')
@@ -38,6 +38,7 @@ onMounted(async () => {
       if (s.theme)                    isDark.value = s.theme !== 'light'
       if (s.log_level)                logLevel.value = s.log_level
       if (s.sponsorblock_enabled === 'false') sponsorBlockEnabled.value = false
+      if (s.cookies_enabled === 'false') cookiesEnabled.value = false
       if (s.sponsorblock_categories) {
         try { sbCategories.value = JSON.parse(s.sponsorblock_categories) } catch {}
       }
@@ -239,6 +240,56 @@ function onBrowserLogsToggle() {
   saveSetting('browser-logs', browserLogs.value ? 'on' : 'off', true)
 }
 
+// ── Danger zone ───────────────────────────────────────────────────────────────
+// ── Cookie file ──────────────────────────────────────────────────────────────
+const cookieFileInput = ref(null)
+
+function onCookiesEnabledToggle() {
+  cookiesEnabled.value = !cookiesEnabled.value
+  saveSetting('cookies-enabled', cookiesEnabled.value ? 'true' : 'false', true)
+}
+
+async function uploadCookieFile(file) {
+  try {
+    const bytes = await file.arrayBuffer()
+    const res = await fetch('/settings/cookie-file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      body: bytes,
+    })
+    if (res.ok || res.status === 204) {
+      cookieFileSet.value = true
+      showToast('Cookie file uploaded.', 'success')
+    } else {
+      const data = await res.json().catch(() => ({}))
+      showToast(data.detail || 'Upload failed.', 'error')
+    }
+  } catch {
+    showToast('Could not reach the daemon.', 'error')
+  }
+}
+
+function onCookieFileInputChange(e) {
+  const file = e.target.files?.[0]
+  if (file) uploadCookieFile(file)
+  e.target.value = ''
+}
+
+async function deleteCookieFile() {
+  try {
+    const res = await fetch('/settings/cookie-file', { method: 'DELETE' })
+    if (res.ok || res.status === 204) {
+      cookieFileSet.value = false
+      cookiesEnabled.value = false
+      showToast('Cookie file deleted.', 'success')
+    } else {
+      showToast('Failed to delete cookie file.', 'error')
+    }
+  } catch {
+    showToast('Could not reach the daemon.', 'error')
+  }
+}
+
 // ── Danger zone ───────────────────────────────────────────────────────────────────
 async function handleDeleteAllPlaylists() {
   try {
@@ -321,6 +372,62 @@ async function handleFactoryReset() {
         </div>
       </div>
 
+      <!-- Cookies row (single row: toggle + upload) -->
+      <div class="setting-row">
+        <div class="setting-label-col">
+          <span class="setting-label">Cookies</span>
+          <span class="setting-desc">
+            Enables access to private, age-restricted, and members-only content.<br />
+            <strong>Warning:</strong> Using extracted browser cookies may result in account bans.
+            <a href="https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies" target="_blank" rel="noopener noreferrer" class="about-link">Read more ↗</a>
+          </span>
+        </div>
+        <div class="setting-control-col">
+          <input
+            ref="cookieFileInput"
+            type="file"
+            accept=".txt"
+            style="display:none"
+            @change="onCookieFileInputChange"
+          />
+          <div class="cookie-controls">
+            <!-- Upload icon button: outline when no file, accent fill when configured -->
+            <button
+              class="btn-icon-upload"
+              :class="{ 'btn-icon-upload--active': cookieFileSet }"
+              :title="cookieFileSet ? 'Replace cookies' : 'Upload cookies'"
+              @click="cookieFileInput.click()"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </button>
+
+            <!-- Toggle: disabled + tooltip when no file -->
+            <label
+              class="toggle-switch"
+              :class="{ 'toggle-switch--disabled': !cookieFileSet }"
+              :title="!cookieFileSet ? 'Upload a cookie file to enable this setting.' : ''"
+            >
+              <input
+                type="checkbox"
+                :checked="cookiesEnabled"
+                :disabled="!cookieFileSet"
+                @change="onCookiesEnabledToggle"
+              />
+              <span class="slider" />
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Auto Renamer ───────────────────────────────────────────────────── -->
+    <section class="settings-section">
+      <h3 class="section-heading">Auto Renamer</h3>
+
       <div class="setting-row">
         <div class="setting-label-col">
           <span class="setting-label">Auto rename</span>
@@ -333,11 +440,6 @@ async function handleFactoryReset() {
           </label>
         </div>
       </div>
-    </section>
-
-    <!-- ── Auto Renamer ───────────────────────────────────────────────────── -->
-    <section class="settings-section">
-      <h3 class="section-heading">Auto Renamer</h3>
 
       <div class="setting-row setting-row--block">
         <div class="setting-label-col">
@@ -527,9 +629,27 @@ async function handleFactoryReset() {
 
       <div class="danger-row">
         <div class="danger-label-col">
+          <span class="setting-label">Delete Cookie File</span>
+          <span class="setting-desc">
+            Removes the uploaded cookie file. Playlists and settings are not affected.
+          </span>
+        </div>
+        <div class="danger-control-col">
+          <ConfirmButton
+            :disabled="!cookieFileSet"
+            disabled-title="No cookie file configured."
+            label="Delete Cookies"
+            danger-label="Yes, delete"
+            @confirm="deleteCookieFile"
+          />
+        </div>
+      </div>
+
+      <div class="danger-row">
+        <div class="danger-label-col">
           <span class="setting-label">Factory Reset</span>
           <span class="setting-desc">
-            Wipes everything — playlists, history, and all settings.
+            Wipes everything — playlists, history, all settings, and uploaded cookie file.
             Like a fresh install. Your downloaded files are not affected.
           </span>
         </div>
@@ -768,6 +888,47 @@ code {
 .btn-save:hover, .btn-primary-sm:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
 .btn-cancel-sm { background: none; color: var(--text-muted); }
 .btn-cancel-sm:hover { color: var(--text); border-color: var(--text-muted); }
+
+/* ── Cookie controls ───────────────────────────────────────────────────── */
+.cookie-controls {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.toggle-switch--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.toggle-switch--disabled input { pointer-events: none; }
+
+.btn-icon-upload {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  padding: 5px;
+  flex-shrink: 0;
+  margin-right: 15px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.btn-icon-upload:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+.btn-icon-upload--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-icon-upload--active:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+}
 
 /* ── MusicBrainz input ──────────────────────────────────────────────────── */
 .mb-input-row {

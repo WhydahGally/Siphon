@@ -390,6 +390,11 @@ _KNOWN_KEYS = {
         "Valid: sponsor, interaction, selfpromo, intro, outro, preview, hook, filler, music_offtopic. "
         "Default: '\"music_offtopic\"'.",
     ),
+    "cookies-enabled": (
+        "cookies_enabled",
+        "Global default for cookie use. When a cookie file is configured, use it by default. "
+        "Accepted values: true, false. Default: true.",
+    ),
 }
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
@@ -405,13 +410,59 @@ _ALLOWED_VALUES: dict = {
     "theme": {"dark", "light"},
     "browser-logs": {"on", "off"},
     "sb-enabled": {"true", "false"},
+    "cookies-enabled": {"true", "false"},
 }
 
-_PLAYLIST_KNOWN_KEYS = {"interval", "auto-rename", "watched", "sponsorblock", "sb-cats"}
+_PLAYLIST_KNOWN_KEYS = {"interval", "auto-rename", "watched", "sponsorblock", "sb-cats", "cookies"}
 
 
 def cmd_config(args: argparse.Namespace) -> int:
     key_arg = args.key
+
+    # Special case: cookie-file is handled by uploading a file, not a string setting
+    if key_arg == "cookie-file":
+        if args.value is None:
+            # Read mode — check if configured
+            data = _daemon_get("/settings/cookie-file")
+            if data.get("set"):
+                print("cookie-file: [configured]")
+            else:
+                print("cookie-file: (not set)")
+            return 0
+        # Write mode — read local file and POST to daemon
+        path = args.value
+        try:
+            with open(path, "rb") as f:
+                content = f.read()
+        except OSError as exc:
+            logger.error("Could not read file '%s': %s", path, exc)
+            return 1
+        import urllib.request as _urllib_req
+        req = _urllib_req.Request(
+            "http://localhost:8000/settings/cookie-file",
+            data=content,
+            method="POST",
+            headers={"Content-Type": "text/plain; charset=utf-8"},
+        )
+        try:
+            with _urllib_req.urlopen(req) as resp:
+                if resp.status in (200, 204):
+                    print("Cookie file configured.")
+                    return 0
+                logger.error("Server returned %d", resp.status)
+                return 1
+        except Exception as exc:
+            # Try to extract error detail from response body
+            detail = str(exc)
+            try:
+                import json as _json
+                body = exc.read().decode("utf-8", errors="replace")
+                detail = _json.loads(body).get("detail", detail)
+            except Exception:
+                pass
+            logger.error("Failed to upload cookie file: %s", detail)
+            return 1
+
     if key_arg not in _KNOWN_KEYS:
         known = ", ".join(_KNOWN_KEYS)
         logger.error("Unknown config key '%s'. Known keys: %s", key_arg, known)
@@ -481,6 +532,9 @@ def cmd_config_playlist(args: argparse.Namespace) -> int:
         sb_cats_raw = match.get("sponsorblock_categories")
         print(f"sponsorblock: {bool(sb_enabled)}")
         print(f"sb-cats:     {sb_cats_raw if sb_cats_raw is not None else '(global default)'}")
+        cookies_val = match.get("cookies_enabled")
+        cookies_str = "(global default)" if cookies_val is None else str(bool(cookies_val))
+        print(f"cookies:     {cookies_str}")
         return 0
 
     if args.key not in _PLAYLIST_KNOWN_KEYS:
@@ -501,6 +555,10 @@ def cmd_config_playlist(args: argparse.Namespace) -> int:
         elif args.key == "sb-cats":
             raw = match.get("sponsorblock_categories")
             print(f"sb-cats: {raw if raw is not None else '(global default)'}")
+        elif args.key == "cookies":
+            val = match.get("cookies_enabled")
+            val_str = "(global default)" if val is None else str(bool(val))
+            print(f"cookies: {val_str}")
         return 0
 
     # Write mode
@@ -547,6 +605,8 @@ def cmd_config_playlist(args: argparse.Namespace) -> int:
             patch["auto_rename"] = bool_val
         elif args.key == "sponsorblock":
             patch["sponsorblock_enabled"] = bool_val
+        elif args.key == "cookies":
+            patch["cookies_enabled"] = bool_val
         else:
             patch["watched"] = bool_val
 

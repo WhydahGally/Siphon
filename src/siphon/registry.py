@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import re
 import sqlite3
 import threading
 from datetime import datetime, timezone
@@ -38,7 +39,8 @@ CREATE TABLE IF NOT EXISTS playlists (
     added_at                TEXT NOT NULL,
     last_synced_at          TEXT,
     platform                TEXT,
-    sponsorblock_categories TEXT
+    sponsorblock_categories TEXT,
+    cookies_enabled         INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS items (
@@ -104,6 +106,11 @@ def init_db(data_dir: str) -> None:
     # Additive migrations: safe to run on existing databases.
     try:
         conn.execute("ALTER TABLE playlists ADD COLUMN sponsorblock_categories TEXT")
+        conn.commit()
+    except Exception:
+        pass  # Column already exists
+    try:
+        conn.execute("ALTER TABLE playlists ADD COLUMN cookies_enabled INTEGER")
         conn.commit()
     except Exception:
         pass  # Column already exists
@@ -176,6 +183,7 @@ def add_playlist(
     check_interval_secs: Optional[int] = None,
     platform: Optional[str] = None,
     sponsorblock_categories: Optional[str] = None,
+    cookies_enabled: Optional[bool] = None,
 ) -> None:
     """Insert a new playlist. Raises ValueError if the playlist ID already exists."""
     conn = _get_conn()
@@ -184,9 +192,10 @@ def add_playlist(
     ).fetchone()
     if existing:
         raise ValueError(f"Playlist '{playlist_id}' is already registered.")
+    cookies_enabled_int = None if cookies_enabled is None else int(cookies_enabled)
     conn.execute(
-        "INSERT INTO playlists (id, name, url, format, quality, output_dir, auto_rename, watched, check_interval_secs, added_at, last_synced_at, platform, sponsorblock_categories) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)",
-        (playlist_id, name, url, fmt, quality, output_dir, int(auto_rename), int(watched), check_interval_secs, _now(), platform, sponsorblock_categories),
+        "INSERT INTO playlists (id, name, url, format, quality, output_dir, auto_rename, watched, check_interval_secs, added_at, last_synced_at, platform, sponsorblock_categories, cookies_enabled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)",
+        (playlist_id, name, url, fmt, quality, output_dir, int(auto_rename), int(watched), check_interval_secs, _now(), platform, sponsorblock_categories, cookies_enabled_int),
     )
     conn.commit()
 
@@ -289,6 +298,88 @@ def set_playlist_sponsorblock(playlist_id: str, categories: Optional[str]) -> No
         (categories, playlist_id),
     )
     conn.commit()
+
+
+def set_playlist_cookies_enabled(playlist_id: str, enabled: Optional[bool]) -> None:
+    """Set the per-playlist cookies_enabled value.
+
+    Pass True to force-enable (1), False to force-disable (0),
+    or None to revert to global default (NULL).
+    """
+    conn = _get_conn()
+    value = None if enabled is None else int(enabled)
+    conn.execute(
+        "UPDATE playlists SET cookies_enabled = ? WHERE id = ?",
+        (value, playlist_id),
+    )
+    conn.commit()
+
+
+def get_cookie_file(playlist_row=None) -> Optional[str]:
+    """Resolve the effective cookie file path for a given download context.
+
+    Resolution order:
+    1. If .data/cookies.txt does not exist → None
+    2. Per-playlist cookies_enabled = 0 → None (force-disabled)
+    3. Per-playlist cookies_enabled = 1 → return path (force-enabled)
+    4. Global setting cookies_enabled = "false" → None
+    5. Otherwise → return path
+    """
+    if _data_dir is None:
+        return None
+    cookie_path = os.path.join(_data_dir, "cookies.txt")
+    if not os.path.isfile(cookie_path):
+        return None
+
+    if playlist_row is not None:
+        per_playlist = playlist_row["cookies_enabled"] if "cookies_enabled" in playlist_row.keys() else None
+        if per_playlist == 0:
+            return None
+        if per_playlist == 1:
+            return cookie_path
+
+    enabled_raw = get_setting("cookies_enabled")
+    if enabled_raw == "false":
+        return None
+
+    return cookie_path
+
+
+def delete_cookie_file_safe(data_dir: str) -> bool:
+    """Delete the cookie file inside data_dir.
+
+    Safety invariants enforced before os.remove():
+    1. Resolved path must start with os.path.abspath(data_dir) + os.sep
+    2. Basename must match re.fullmatch(r'cookies\\.txt', basename) exactly
+    3. File must exist and be a regular file
+
+    Returns True if deleted, False if file is absent.
+    Raises RuntimeError if any safety invariant (1 or 2) fails.
+    """
+    abs_data_dir = os.path.abspath(data_dir)
+    target = os.path.join(abs_data_dir, "cookies.txt")
+    abs_target = os.path.abspath(target)
+
+    # Invariant 1: path must stay inside data_dir
+    if not abs_target.startswith(abs_data_dir + os.sep):
+        raise RuntimeError(
+            f"delete_cookie_file_safe: resolved path {abs_target!r} escapes data_dir {abs_data_dir!r}"
+        )
+
+    # Invariant 2: basename must be exactly "cookies.txt"
+    basename = os.path.basename(abs_target)
+    if not re.fullmatch(r"cookies\.txt", basename):
+        raise RuntimeError(
+            f"delete_cookie_file_safe: unexpected filename {basename!r}; expected 'cookies.txt'"
+        )
+
+    # Invariant 3: file must exist
+    if not os.path.isfile(abs_target):
+        return False
+
+    os.remove(abs_target)
+    logger.info("Cookie file deleted: %s", abs_target)
+    return True
 
 
 # ---------------------------------------------------------------------------

@@ -92,6 +92,7 @@ class PlaylistCreate(BaseModel):
     download: bool = False
     sponsorblock_enabled: bool = False
     sponsorblock_categories: Optional[List[str]] = None
+    cookies_enabled: Optional[bool] = None
 
 
 class PlaylistPatch(BaseModel):
@@ -100,6 +101,7 @@ class PlaylistPatch(BaseModel):
     auto_rename: Optional[bool] = None
     sponsorblock_enabled: Optional[bool] = None
     sponsorblock_categories: Optional[List[str]] = None
+    cookies_enabled: Optional[bool] = None
 
 
 class SettingWrite(BaseModel):
@@ -116,6 +118,7 @@ class JobCreate(BaseModel):
     check_interval_secs: Optional[int] = None
     sponsorblock_enabled: bool = False
     sponsorblock_categories: Optional[List[str]] = None
+    use_cookies: bool = False
 
 
 class RenameRequest(BaseModel):

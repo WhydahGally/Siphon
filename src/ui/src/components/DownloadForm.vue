@@ -6,7 +6,7 @@ import { useSettings } from '../composables/useSettings.js'
 
 const emit = defineEmits(['job-created'])
 const { showToast } = useToast()
-const { autoRename: globalAutoRename, sponsorBlockEnabled: globalSponsorBlock, loaded: settingsLoaded } = useSettings()
+const { autoRename: globalAutoRename, sponsorBlockEnabled: globalSponsorBlock, cookiesEnabled: globalCookiesEnabled, cookieFileSet, loaded: settingsLoaded } = useSettings()
 
 const url = ref('')
 const format = ref('mp3')
@@ -15,6 +15,8 @@ const autoRename = ref(globalAutoRename.value)
 watch(settingsLoaded, () => { autoRename.value = globalAutoRename.value }, { once: true })
 const sponsorBlock = ref(globalSponsorBlock.value)
 watch(settingsLoaded, () => { sponsorBlock.value = globalSponsorBlock.value }, { once: true })
+const useCookies = ref(globalCookiesEnabled.value)
+watch(settingsLoaded, () => { useCookies.value = globalCookiesEnabled.value }, { once: true })
 const autoSync = ref(true)
 const interval = ref(86400)
 const editingInterval = ref(false)
@@ -111,6 +113,7 @@ async function handleDownload() {
     auto_rename: autoRename.value,
     watched: isPlaylist.value ? autoSync.value : false,
     sponsorblock_enabled: sponsorBlock.value,
+    use_cookies: useCookies.value,
   }
   if (isPlaylist.value && autoSync.value && interval.value) {
     body.check_interval_secs = Number(interval.value)
@@ -217,6 +220,15 @@ async function handleDownload() {
           <span class="slider" />
         </span>
         <span>SponsorBlock</span>
+      </label>
+
+      <!-- Cookies -->
+      <label v-if="settingsLoaded && cookieFileSet" class="toggle-label">
+        <span class="toggle-switch">
+          <input v-model="useCookies" type="checkbox" :disabled="loading" />
+          <span class="slider" />
+        </span>
+        <span>Cookies</span>
       </label>
 
       <!-- Auto sync (playlist only) — interval is inline -->
