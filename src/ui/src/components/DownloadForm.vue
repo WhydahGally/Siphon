@@ -381,7 +381,7 @@ async function handleDownload() {
 .toggles-row {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 30px;
   flex-wrap: wrap;
   min-height: 36px;
 }

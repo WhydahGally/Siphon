@@ -536,7 +536,7 @@ onMounted(() => {
 .row-meta-line {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 20px;
 }
 
 .playlist-name {
@@ -591,7 +591,7 @@ onMounted(() => {
 }
 
 .meta-sep {
-  font-size: 20px;
+  font-size: 25px;
   color: var(--text-muted);
   opacity: 0.5;
   flex-shrink: 0;
@@ -601,7 +601,7 @@ onMounted(() => {
 .controls-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 30px;
   flex-wrap: nowrap;
   flex: 1;
   margin-top: 5px;
