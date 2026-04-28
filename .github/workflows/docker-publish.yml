@@ -5,11 +5,16 @@ on:
     branches: [develop]
   workflow_dispatch:
   workflow_call:
-    inputs:
-      version_tag:
-        description: "Version tag to apply (e.g. v1.2.0). Empty = latest only."
-        required: false
-        type: string
+      inputs:
+        version_tag:
+          description: "Version tag to apply (e.g. v1.2.0). Empty = latest only."
+          required: false
+          type: string
+        develop_tag:
+          description: "Build and tag as develop image from the develop branch."
+          required: false
+          type: boolean
+          default: false
 
 env:
   REGISTRY: ghcr.io
@@ -25,6 +30,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.develop_tag && 'develop' || '' }}
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -39,8 +46,8 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref != 'refs/heads/develop' }}
-            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
+            type=raw,value=latest,enable=${{ github.ref != 'refs/heads/develop' && !inputs.develop_tag }}
+            type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' || inputs.develop_tag }}
             type=raw,value=${{ inputs.version_tag }},enable=${{ inputs.version_tag != '' }}
 
       - name: Build and push
