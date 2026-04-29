@@ -243,6 +243,7 @@ function onBrowserLogsToggle() {
 // ── Danger zone ───────────────────────────────────────────────────────────────
 // ── Cookie file ──────────────────────────────────────────────────────────────
 const cookieFileInput = ref(null)
+const showCookieWarning = ref(false)
 
 function onCookiesEnabledToggle() {
   cookiesEnabled.value = !cookiesEnabled.value
@@ -273,6 +274,11 @@ function onCookieFileInputChange(e) {
   const file = e.target.files?.[0]
   if (file) uploadCookieFile(file)
   e.target.value = ''
+}
+
+function confirmCookieUpload() {
+  showCookieWarning.value = false
+  cookieFileInput.value.click()
 }
 
 async function deleteCookieFile() {
@@ -396,7 +402,7 @@ async function handleFactoryReset() {
               class="btn-icon-upload"
               :class="{ 'btn-icon-upload--active': cookieFileSet }"
               :title="cookieFileSet ? 'Replace cookies' : 'Upload cookies'"
-              @click="cookieFileInput.click()"
+              @click="showCookieWarning = true"
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -663,6 +669,22 @@ async function handleFactoryReset() {
       </div>
     </section>
   </div>
+
+  <!-- ── Cookie upload warning modal ──────────────────────────────────────── -->
+  <Teleport to="body">
+    <div v-if="showCookieWarning" class="cookie-modal-overlay" @click.self="showCookieWarning = false">
+      <div class="cookie-modal">
+        <p class="cookie-modal-text">
+          Uploading via the web UI sends your cookie file over HTTP (unencrypted). For a network-safe alternative, drop the file directly into your app data volume — see
+          <a href="https://github.com/WhydahGally/Siphon#cookie-file-security" target="_blank" rel="noopener noreferrer" class="cookie-modal-link">Cookie File Security</a>.
+        </p>
+        <div class="cookie-modal-actions">
+          <button class="cookie-modal-cancel" @click="showCookieWarning = false">Cancel</button>
+          <button class="cookie-modal-confirm" @click="confirmCookieUpload">Proceed</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -1128,6 +1150,80 @@ code {
   border-bottom: 1px solid var(--border);
 }
 .danger-row:last-child { border-bottom: none; }
+
+/* ── Cookie upload warning modal ─────────────────────────────────────────── */
+.cookie-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.cookie-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  max-width: 520px;
+  width: 90%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.cookie-modal-text {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.cookie-modal-link {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.cookie-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.cookie-modal-cancel {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  padding: 7px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.cookie-modal-cancel:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.cookie-modal-confirm {
+  background: var(--error);
+  border: 1px solid var(--error);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.cookie-modal-confirm:hover {
+  background: #c94444;
+  border-color: #c94444;
+}
 
 .danger-label-col {
   display: flex;
