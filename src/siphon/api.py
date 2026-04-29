@@ -477,7 +477,7 @@ def api_patch_playlist(playlist_id: str, body: PlaylistPatch):
         registry.set_playlist_auto_rename(playlist_id, body.auto_rename)
     if body.sponsorblock_enabled is not None or body.sponsorblock_categories is not None:
         _apply_sb_patch(playlist_id, body)
-    if body.cookies_enabled is not None:
+    if body.cookies_enabled is not None or "cookies_enabled" in body.model_fields_set:
         registry.set_playlist_cookies_enabled(playlist_id, body.cookies_enabled)
     if _scheduler is not None and (body.watched is not None or body.check_interval_secs is not None):
         _scheduler.reschedule_playlist(playlist_id)
