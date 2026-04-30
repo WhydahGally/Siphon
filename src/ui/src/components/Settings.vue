@@ -12,7 +12,7 @@ const maxConcurrent = ref(5)
 const intervalSecs = ref(86400)
 const editingInterval = ref(false)
 const intervalInput = ref('')
-const { autoRename: autoRenameGlobal, browserLogs, cookiesEnabled, cookieFileSet, loaded: settingsLoaded } = useSettings()
+const { autoRename: autoRenameGlobal, browserLogs, sponsorBlockEnabled, cookiesEnabled, cookieFileSet, loaded: settingsLoaded } = useSettings()
 const mbEmail = ref('')
 const isDark = ref(true)
 const logLevel = ref('INFO')
@@ -181,7 +181,6 @@ async function saveNoisePatterns() {
 }
 
 // ── SponsorBlock ─────────────────────────────────────────────────────────────────
-const sponsorBlockEnabled = ref(true)
 const sbCatsOpen = ref(false)
 
 const SB_CATEGORIES = [
@@ -514,7 +513,7 @@ async function handleFactoryReset() {
 
       <div class="setting-row">
         <div class="setting-label-col">
-          <span class="setting-label">Remove segments</span>
+          <span class="setting-label">Enable SponsorBlock</span>
           <span class="setting-desc">
             Automatically remove segments using the
             <a href="https://sponsor.ajay.app" target="_blank" rel="noopener noreferrer" class="about-link">SponsorBlock ↗</a>
