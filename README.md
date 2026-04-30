@@ -188,7 +188,7 @@ make -f tests/Makefile e2e
 
 ## Submitting Issues
 
-Siphon is a wrapper around [yt-dlp](https://github.com/yt-dlp/yt-dlp). Many issues — especially download failures, authentication errors, format extraction problems or are caused by yt-dlp, not Siphon.
+Siphon is a wrapper around [yt-dlp](https://github.com/yt-dlp/yt-dlp). Many issues - especially download failures, authentication errors, format extraction problems are caused by yt-dlp, not Siphon.
 
 **Common yt-dlp issues:**
 - **"Video unavailable"** — the video is private, deleted, or region-locked.
