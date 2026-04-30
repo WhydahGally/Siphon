@@ -76,11 +76,20 @@ jobs:
           tag_name: ${{ steps.next.outputs.version }}
           generate_release_notes: true
 
-  docker:
+  docker-release:
     needs: release
     uses: ./.github/workflows/docker-publish.yml
     with:
       version_tag: ${{ needs.release.outputs.version }}
+    permissions:
+      contents: read
+      packages: write
+
+  docker-develop:
+    needs: release
+    uses: ./.github/workflows/docker-publish.yml
+    with:
+      develop_tag: true
     permissions:
       contents: read
       packages: write

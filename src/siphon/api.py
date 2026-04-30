@@ -16,7 +16,7 @@ from typing import List, Optional
 
 import importlib.metadata
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from yt_dlp import YoutubeDL
@@ -259,6 +259,7 @@ def _scheduler_sync_fn(row) -> None:
         on_sync_info=_on_sync_info,
         on_sync_done=_on_sync_done,
         sponsorblock_categories=registry.get_sponsorblock_categories(row),
+        cookie_file=_get_cookie_file_path(row),
     )
 
 
@@ -447,6 +448,10 @@ def api_factory_reset():
         for pid in list(registry.list_playlists()):
             _scheduler.remove_playlist(pid["id"])
     registry.factory_reset()
+    try:
+        registry.delete_cookie_file_safe(_resolve_data_dir())
+    except Exception:
+        pass  # silently ignore if file absent or error
 
 
 @app.delete("/playlists/{playlist_id}", status_code=204)
@@ -472,6 +477,8 @@ def api_patch_playlist(playlist_id: str, body: PlaylistPatch):
         registry.set_playlist_auto_rename(playlist_id, body.auto_rename)
     if body.sponsorblock_enabled is not None or body.sponsorblock_categories is not None:
         _apply_sb_patch(playlist_id, body)
+    if body.cookies_enabled is not None or "cookies_enabled" in body.model_fields_set:
+        registry.set_playlist_cookies_enabled(playlist_id, body.cookies_enabled)
     if _scheduler is not None and (body.watched is not None or body.check_interval_secs is not None):
         _scheduler.reschedule_playlist(playlist_id)
     return _playlist_to_dict(registry.get_playlist_by_id(playlist_id))
@@ -500,6 +507,7 @@ def api_sync_playlist(playlist_id: str):
             on_sync_info=_on_sync_info,
             on_sync_done=_on_sync_done,
             sponsorblock_categories=registry.get_sponsorblock_categories(row),
+            cookie_file=_get_cookie_file_path(row),
         ),
         daemon=True,
     )
@@ -565,6 +573,7 @@ def api_sync_failed_playlist(playlist_id: str):
             row=row,
             max_workers=_get_max_workers(),
             default_output_dir=_resolve_output_dir(_DEFAULT_OUTPUT_DIR),
+            cookie_file=_get_cookie_file_path(row),
         ),
         daemon=True,
     )
@@ -575,6 +584,77 @@ def api_sync_failed_playlist(playlist_id: str):
 # ------------------------------------------------------------------
 # /settings endpoints
 # ------------------------------------------------------------------
+
+_COOKIE_FILE_MAX_BYTES = 1_048_576  # 1 MB
+
+
+def _get_cookie_file_path(playlist_row=None) -> Optional[str]:
+    """Return the effective cookie file path for a given playlist row, or None."""
+    return registry.get_cookie_file(playlist_row)
+
+
+def _validate_netscape_cookies(content: str) -> bool:
+    """Return True if content contains at least one valid Netscape cookie line."""
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) != 7:
+            continue
+        # Fields 2 and 4 must be TRUE or FALSE; field 5 must be a non-negative integer
+        if parts[1] not in ("TRUE", "FALSE"):
+            continue
+        if parts[3] not in ("TRUE", "FALSE"):
+            continue
+        try:
+            if int(parts[4]) < 0:
+                continue
+        except ValueError:
+            continue
+        return True
+    return False
+
+
+@app.get("/settings/cookie-file")
+def api_get_cookie_file():
+    cookie_path = os.path.join(_resolve_data_dir(), "cookies.txt")
+    return {"set": os.path.isfile(cookie_path)}
+
+
+@app.post("/settings/cookie-file", status_code=204)
+async def api_upload_cookie_file(request: Request):
+    body = await request.body()
+    if len(body) > _COOKIE_FILE_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File exceeds the 1 MB size limit.")
+    try:
+        content = body.decode("utf-8", errors="replace")
+    except Exception:
+        raise HTTPException(status_code=400, detail="Could not decode file as text.")
+    if not _validate_netscape_cookies(content):
+        raise HTTPException(
+            status_code=400,
+            detail="File does not appear to be a valid Netscape HTTP cookie file. "
+                   "Expected tab-separated lines with 7 fields (domain, TRUE/FALSE, path, TRUE/FALSE, expiry, name, value).",
+        )
+    cookie_path = os.path.join(_resolve_data_dir(), "cookies.txt")
+    tmp_path = cookie_path + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        os.chmod(tmp_path, 0o600)
+        os.replace(tmp_path, cookie_path)
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to save cookie file: {exc}")
+    logger.info("Cookie file uploaded and saved to %s", cookie_path)
+
+
+@app.delete("/settings/cookie-file", status_code=204)
+def api_delete_cookie_file():
+    deleted = registry.delete_cookie_file_safe(_resolve_data_dir())
+    if not deleted:
+        raise HTTPException(status_code=404, detail="No cookie file is configured.")
+
 
 @app.get("/settings")
 def api_get_settings():
@@ -717,6 +797,7 @@ def api_create_job(body: JobCreate):
                 watched=body.watched,
                 check_interval_secs=body.check_interval_secs,
                 platform=platform,
+                cookies_enabled=body.use_cookies if body.use_cookies else None,
             )
             existing_playlist = False
         except ValueError:
@@ -725,7 +806,7 @@ def api_create_job(body: JobCreate):
         if body.watched and _scheduler is not None:
             _scheduler.add_playlist(playlist_id)
 
-        entries = enumerate_entries(url)
+        entries = enumerate_entries(url, cookie_file=_get_cookie_file_path() if body.use_cookies else None)
         entries = filter_entries(entries, playlist_id)
     else:
         # Single video
@@ -765,6 +846,7 @@ def api_create_job(body: JobCreate):
     options = build_options(body.format, body.quality)
     sponsorblock_categories = _resolve_sb_categories_for_job(body)
     mb_user_agent = registry.get_setting("mb_user_agent")
+    cookie_file = _get_cookie_file_path() if body.use_cookies else None
 
     t = threading.Thread(
         target=run_download_job,
@@ -781,6 +863,7 @@ def api_create_job(body: JobCreate):
             noise_patterns=registry.get_noise_patterns(),
             job_store=_job_store,
             sponsorblock_categories=sponsorblock_categories,
+            cookie_file=cookie_file,
         ),
         daemon=True,
     )

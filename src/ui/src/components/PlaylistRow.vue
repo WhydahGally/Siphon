@@ -3,6 +3,9 @@ import { ref, computed, onMounted, nextTick } from 'vue'
 import ConfirmButton from './ConfirmButton.vue'
 import PlaylistItemsPanel from './PlaylistItemsPanel.vue'
 import { secsToHuman, ddhhmmssToSecs, secsToDdhhmmss } from '../utils/interval.js'
+import { useSettings } from '../composables/useSettings.js'
+
+const { cookieFileSet } = useSettings()
 
 const props = defineProps({
   playlist: { type: Object, required: true },
@@ -15,6 +18,7 @@ const emit = defineEmits(['expand', 'collapse', 'deleted'])
 // local copies of mutable state
 const autoRename = ref(props.playlist.auto_rename)
 const sponsorBlock = ref(props.playlist.sponsorblock_enabled ?? true)
+const useCookies = ref(props.playlist.cookies_enabled ?? null)
 const watched = ref(props.playlist.watched)
 const syncing = ref(props.playlist.is_syncing)
 const syncInfo = computed(() => props.playlist.sync_info ?? null)
@@ -116,6 +120,20 @@ async function toggleSponsorBlock() {
     })
   } catch {
     sponsorBlock.value = !next // revert on error
+  }
+}
+
+async function toggleUseCookies() {
+  const next = useCookies.value === null ? true : !useCookies.value
+  useCookies.value = next
+  try {
+    await fetch(`/playlists/${props.playlist.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cookies_enabled: next }),
+    })
+  } catch {
+    useCookies.value = !next // revert on error
   }
 }
 
@@ -258,6 +276,13 @@ onMounted(() => {
           </span>
           <span>SponsorBlock</span>
         </label>
+        <label v-if="cookieFileSet" class="toggle-label">
+          <span class="toggle-switch">
+            <input type="checkbox" :checked="useCookies ?? false" @change="toggleUseCookies" />
+            <span class="slider" />
+          </span>
+          <span>Cookies</span>
+        </label>
         <label class="toggle-label">
           <span class="toggle-switch">
             <input type="checkbox" :checked="watched" @change="toggleWatched" />
@@ -342,7 +367,13 @@ onMounted(() => {
             </span>
             <span>SponsorBlock</span>
           </label>
-
+          <label v-if="cookieFileSet" class="toggle-label">
+            <span class="toggle-switch">
+              <input type="checkbox" :checked="useCookies ?? false" @change="toggleUseCookies" />
+              <span class="slider" />
+            </span>
+            <span>Cookies</span>
+          </label>
           <label class="toggle-label">
             <span class="toggle-switch">
               <input type="checkbox" :checked="watched" @change="toggleWatched" />
@@ -505,7 +536,7 @@ onMounted(() => {
 .row-meta-line {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 20px;
 }
 
 .playlist-name {
@@ -560,7 +591,7 @@ onMounted(() => {
 }
 
 .meta-sep {
-  font-size: 20px;
+  font-size: 25px;
   color: var(--text-muted);
   opacity: 0.5;
   flex-shrink: 0;
@@ -570,7 +601,7 @@ onMounted(() => {
 .controls-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 30px;
   flex-wrap: nowrap;
   flex: 1;
   margin-top: 5px;

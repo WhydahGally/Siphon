@@ -8,14 +8,14 @@ Siphon is primarily developed using spec-driven development through [OpenSpec](h
 
 ## Features
 
-- **Download** — Download entire playlists or single videos.
+- **Download** — Entire playlists or single videos, with configurable concurrent workers.
 - **Format selection** — Download audio (MP3, OPUS) or video formats (MP4, MKV, WEBM) with quality options.
-- **Parallel downloads** — Configurable concurrent downloads (1–10 workers).
-- **Playlist watching** — Monitors playlists and auto-downloads newly added videos.
+- **Playlist sync** — Monitors playlists and auto-downloads newly added videos.
 - **Scheduled syncing** — Configurable per-playlist sync intervals (hourly, daily, whatever you want).
 - **Smart auto-renaming** — Cleans up filenames and titles using embedded metadata and MusicBrainz lookups.
 - **Manual renaming** — Manually rename individual downloaded items from the Web UI or CLI. Changes are applied on disk and in metadata.
 - **SponsorBlock integration** — Automatically removes sponsor segments, intros, outros and non-music sections from downloads using the [SponsorBlock](https://sponsor.ajay.app) community database.
+- **Cookie support** — Upload a [browser cookie](#browser-cookies) file to unlock private playlists, age-restricted videos, and members-only content.
 - **Audio metadata embedding** — Embeds artist, title, album and cover art into audio files.
 - **Web UI** — Manage playlists, view download history, configure settings and monitor progress from your browser.
 - **CLI** — Full command-line interface for automation, scripting and debugging.
@@ -30,7 +30,7 @@ Siphon is primarily developed using spec-driven development through [OpenSpec](h
 <img width="1728" height="1084" alt="Screenshot 2026-04-12 at 23 51 04" src="https://github.com/user-attachments/assets/81439fcc-e36f-4d4d-b521-a5fc9efe6a75" />
 
 
-## Installation
+## Setup
 
 ### Unraid
 
@@ -77,6 +77,49 @@ services:
 
 The web UI is available at `http://<your-ip>:8778`.
 
+
+### CLI Commands
+
+|                      Command                      |                                                        Description                                                        |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `siphon --help`                                   | Show all available commands.                                                                                              |
+| `siphon start`                                   | Start the Siphon daemon (required for all other commands).                                                                |
+| `siphon add <url>`                                | Register a playlist (`--download`, `--no-watch`, `--interval`, `--format`, `--quality`, `--output-dir`, `--auto-rename`, `--sponsorblock`). |
+| `siphon list`                                     | Show all registered playlists.                                                                                            |
+| `siphon sync [<name>]`                            | Download new items for a specific playlist or all playlists.                                                              |
+| `siphon sync-failed [<name>]`                     | Retry failed downloads for a specific playlist or all.                                                                    |
+| `siphon cancel`                                   | Cancel all active download jobs.                                                                                          |
+| `siphon delete <name>`                            | Remove a playlist from the registry.                                                                                      |
+| `siphon delete-all-playlists`                     | Remove all playlists and sync history from the registry.                                                                  |
+| `siphon factory-reset`                            | Wipe all playlists, history and settings. Downloads are not affected.                                                     |
+| `siphon config <key> [<value>]`                   | Get or set a global config value (`log-level`, `interval`, `max-concurrent-downloads`, `mb-user-agent`, `auto-rename`, `theme`, `browser-logs`, `title-noise-patterns`, `sb-enabled`, `sb-cats`, `cookies-enabled`, `cookie-file`). |
+| `siphon config-playlist <name> [<key> [<value>]]` | Get or set per-playlist config (`interval`, `auto-rename`, `watched`, `sponsorblock`, `sb-cats`, `cookies`).                         |
+| `siphon playlist-items <name>`                    | List all downloaded items for a playlist.                                                                                 |
+| `siphon rename-item <playlist> <current-name> <new-name>` | Rename a downloaded item in a playlist. Renames the file on disk and sets the rename tier to `manual`.              |
+
+### Browser Cookies
+
+Some content requires authentication to download (private playlists, age-restricted videos, members-only posts). See the [yt-dlp cookie authentication guide](https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies).
+
+> **Note:** Using extracted browser cookies may result in account bans.
+
+#### Configuring cookies
+
+- **Web UI** — Go to Settings → Cookies and click the upload button.
+- **CLI** — `siphon config cookie-file /path/to/cookies.txt`
+
+#### Cookie File Security
+
+Siphon communicates over HTTP (no TLS). If you are accessing Siphon over Wi-Fi from a remote server, a compromised device on the same network could intercept it.
+
+**Safe one-time alternative:** copy the file directly into the container filesystem without touching the network:
+
+```bash
+docker exec -i siphon sh -c 'cat > /app/.data/cookies.txt' < /path/to/cookies.txt
+```
+
+For ongoing encrypted access, place a TLS-terminating reverse proxy in front of Siphon.
+
 ## Contributing
 
 Contributions are welcome! AI-generated code is also welcome — but only if it follows spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec/tree/main). No yolo PRs. Every change needs specs committed alongside the code.
@@ -85,10 +128,10 @@ Contributions are welcome! AI-generated code is also welcome — but only if it 
 - **New features** — open a [Discussion](https://github.com/WhydahGally/Siphon/discussions) first to align on scope and approach before writing any specs or code.
 - **Bug fixes** — open an [Issue](https://github.com/WhydahGally/Siphon/issues) first to confirm the bug and agree on the fix.
 
-When raising a PR:
-1. Include the OpenSpec artifacts (proposal, design, specs, tasks) in the `openspec/changes/` directory.
-2. Ensure specs exist for any new capabilities under `openspec/specs/`.
-3. Test your changes locally following the steps provided in the [**Local Development**](#local-development) section.
+**When raising a PR:**
+- Include the OpenSpec artifacts (proposal, design, specs, tasks) in the `openspec/changes/` directory.
+- Ensure specs exist for any new capabilities under `openspec/specs/`.
+- Test your changes locally following the steps provided in the [**Local Development**](#local-development) section below.
 
 ### Local Development
 
@@ -119,25 +162,6 @@ npm install
 npm run dev
 ```
 
-### CLI Commands
-
-|                      Command                      |                                                        Description                                                        |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `siphon --help`                                   | Show all available commands.                                                                                              |
-| `siphon start`                                   | Start the Siphon daemon (required for all other commands).                                                                |
-| `siphon add <url>`                                | Register a playlist (`--download`, `--no-watch`, `--interval`, `--format`, `--quality`, `--output-dir`, `--auto-rename`, `--sponsorblock`). |
-| `siphon list`                                     | Show all registered playlists.                                                                                            |
-| `siphon sync [<name>]`                            | Download new items for a specific playlist or all playlists.                                                              |
-| `siphon sync-failed [<name>]`                     | Retry failed downloads for a specific playlist or all.                                                                    |
-| `siphon cancel`                                   | Cancel all active download jobs.                                                                                          |
-| `siphon delete <name>`                            | Remove a playlist from the registry.                                                                                      |
-| `siphon delete-all-playlists`                     | Remove all playlists and sync history from the registry.                                                                  |
-| `siphon factory-reset`                            | Wipe all playlists, history and settings. Downloads are not affected.                                                     |
-| `siphon config <key> [<value>]`                   | Get or set a global config value (`log-level`, `interval`, `max-concurrent-downloads`, `mb-user-agent`, `auto-rename`, `theme`, `browser-logs`, `title-noise-patterns`, `sb-enabled`, `sb-cats`). |
-| `siphon config-playlist <name> [<key> [<value>]]` | Get or set per-playlist config (`interval`, `auto-rename`, `watched`, `sponsorblock`, `sb-cats`).                         |
-| `siphon playlist-items <name>`                    | List all downloaded items for a playlist.                                                                                 |
-| `siphon rename-item <playlist> <current-name> <new-name>` | Rename a downloaded item in a playlist. Renames the file on disk and sets the rename tier to `manual`.              |
-
 ### Running Tests
 
 **Unit tests** (no daemon required):
@@ -164,11 +188,11 @@ make -f tests/Makefile e2e
 
 ## Submitting Issues
 
-Siphon is a wrapper around [yt-dlp](https://github.com/yt-dlp/yt-dlp). Many issues — especially download failures, authentication errors, format extraction problems or are caused by yt-dlp, not Siphon.
+Siphon is a wrapper around [yt-dlp](https://github.com/yt-dlp/yt-dlp). Many issues - especially download failures, authentication errors, format extraction problems are caused by yt-dlp, not Siphon.
 
 **Common yt-dlp issues:**
 - **"Video unavailable"** — the video is private, deleted, or region-locked.
-- **"Sign in to confirm your age"** — requires cookie authentication, not currently supported by Siphon.
+- **"Sign in to confirm your age"** — requires cookie authentication. See the [Browser Cookies](#browser-cookies) section to configure a cookie file.
 - **Format extraction errors** — usually fixed by updating yt-dlp. Siphon pins a specific yt-dlp version; check if a newer version resolves it.
 
 **Before opening an issue, check if it's a yt-dlp problem:**
@@ -192,12 +216,12 @@ Siphon writes a rolling log file to `.data/siphon.log` (5 MB max, 1 backup). In 
 
 Siphon supports four log levels, configurable via the CLI or the Settings page in the web UI:
 
-| Level | Description |
-|---|---|
-| `DEBUG` | Verbose output including yt-dlp internals. Use when diagnosing issues. |
-| `INFO` | Normal operation. Shows sync activity, downloads and renames. (default) |
-| `WARNING` | Only warnings and errors. |
-| `ERROR` | Only errors. |
+|   Level   |                               Description                               |
+| --------- | ----------------------------------------------------------------------- |
+| `DEBUG`   | Verbose output including yt-dlp internals. Use when diagnosing issues.  |
+| `INFO`    | Normal operation. Shows sync activity, downloads and renames. (default) |
+| `WARNING` | Only warnings and errors.                                               |
+| `ERROR`   | Only errors.                                                            |
 
 Set the log level:
 ```bash

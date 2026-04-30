@@ -151,14 +151,14 @@ def main() -> None:
 
     # -- config --
     p_cfg = sub.add_parser("config", help="Get or set a global configuration value.")
-    p_cfg.add_argument("key", choices=list(_KNOWN_KEYS), help="Config key to read or write.")
+    p_cfg.add_argument("key", choices=list(_KNOWN_KEYS) + ["cookie-file"], help="Config key to read or write.")
     p_cfg.add_argument("value", nargs="?", default=None, help="Value to set. Omit to read the current value.")
 
     # -- config-playlist --
     p_cfgp = sub.add_parser("config-playlist", help="Get or set a per-playlist configuration value.")
     p_cfgp.add_argument("name", help="Playlist name to configure.")
     p_cfgp.add_argument("key", nargs="?", default=None, metavar="key",
-                        help="Setting to read or write: interval, auto-rename, watched, sponsorblock, sb-cats. Omit to show all.")
+                        help="Setting to read or write: interval, auto-rename, watched, sponsorblock, sb-cats, cookies. Omit to show all.")
     p_cfgp.add_argument("value", nargs="?", default=None, help="Value to set. Omit to read the current value.")
 
     # -- playlist-items --

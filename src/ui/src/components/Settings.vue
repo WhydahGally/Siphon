@@ -12,7 +12,7 @@ const maxConcurrent = ref(5)
 const intervalSecs = ref(86400)
 const editingInterval = ref(false)
 const intervalInput = ref('')
-const { autoRename: autoRenameGlobal, browserLogs, loaded: settingsLoaded } = useSettings()
+const { autoRename: autoRenameGlobal, browserLogs, sponsorBlockEnabled, cookiesEnabled, cookieFileSet, loaded: settingsLoaded } = useSettings()
 const mbEmail = ref('')
 const isDark = ref(true)
 const logLevel = ref('INFO')
@@ -38,6 +38,7 @@ onMounted(async () => {
       if (s.theme)                    isDark.value = s.theme !== 'light'
       if (s.log_level)                logLevel.value = s.log_level
       if (s.sponsorblock_enabled === 'false') sponsorBlockEnabled.value = false
+      if (s.cookies_enabled === 'false') cookiesEnabled.value = false
       if (s.sponsorblock_categories) {
         try { sbCategories.value = JSON.parse(s.sponsorblock_categories) } catch {}
       }
@@ -180,7 +181,6 @@ async function saveNoisePatterns() {
 }
 
 // ── SponsorBlock ─────────────────────────────────────────────────────────────────
-const sponsorBlockEnabled = ref(true)
 const sbCatsOpen = ref(false)
 
 const SB_CATEGORIES = [
@@ -237,6 +237,62 @@ function onLogLevelChange() { saveSetting('log-level', logLevel.value, true) }
 function onBrowserLogsToggle() {
   browserLogs.value = !browserLogs.value
   saveSetting('browser-logs', browserLogs.value ? 'on' : 'off', true)
+}
+
+// ── Danger zone ───────────────────────────────────────────────────────────────
+// ── Cookie file ──────────────────────────────────────────────────────────────
+const cookieFileInput = ref(null)
+const showCookieWarning = ref(false)
+
+function onCookiesEnabledToggle() {
+  cookiesEnabled.value = !cookiesEnabled.value
+  saveSetting('cookies-enabled', cookiesEnabled.value ? 'true' : 'false', true)
+}
+
+async function uploadCookieFile(file) {
+  try {
+    const bytes = await file.arrayBuffer()
+    const res = await fetch('/settings/cookie-file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+      body: bytes,
+    })
+    if (res.ok || res.status === 204) {
+      cookieFileSet.value = true
+      showToast('Cookie file uploaded.', 'success')
+    } else {
+      const data = await res.json().catch(() => ({}))
+      showToast(data.detail || 'Upload failed.', 'error')
+    }
+  } catch {
+    showToast('Could not reach the daemon.', 'error')
+  }
+}
+
+function onCookieFileInputChange(e) {
+  const file = e.target.files?.[0]
+  if (file) uploadCookieFile(file)
+  e.target.value = ''
+}
+
+function confirmCookieUpload() {
+  showCookieWarning.value = false
+  cookieFileInput.value.click()
+}
+
+async function deleteCookieFile() {
+  try {
+    const res = await fetch('/settings/cookie-file', { method: 'DELETE' })
+    if (res.ok || res.status === 204) {
+      cookieFileSet.value = false
+      cookiesEnabled.value = false
+      showToast('Cookie file deleted.', 'success')
+    } else {
+      showToast('Failed to delete cookie file.', 'error')
+    }
+  } catch {
+    showToast('Could not reach the daemon.', 'error')
+  }
 }
 
 // ── Danger zone ───────────────────────────────────────────────────────────────────
@@ -321,6 +377,62 @@ async function handleFactoryReset() {
         </div>
       </div>
 
+      <!-- Cookies row (single row: toggle + upload) -->
+      <div class="setting-row">
+        <div class="setting-label-col">
+          <span class="setting-label">Cookies</span>
+          <span class="setting-desc">
+            Enables access to private, age-restricted, and members-only content.<br />
+            <strong>Warning:</strong> Using extracted browser cookies may result in account bans.
+            <a href="https://github.com/yt-dlp/yt-dlp/wiki/Extractors#exporting-youtube-cookies" target="_blank" rel="noopener noreferrer" class="about-link">Read more ↗</a>
+          </span>
+        </div>
+        <div class="setting-control-col">
+          <input
+            ref="cookieFileInput"
+            type="file"
+            accept=".txt"
+            style="display:none"
+            @change="onCookieFileInputChange"
+          />
+          <div class="cookie-controls">
+            <!-- Upload icon button: outline when no file, accent fill when configured -->
+            <button
+              class="btn-icon-upload"
+              :class="{ 'btn-icon-upload--active': cookieFileSet }"
+              :title="cookieFileSet ? 'Replace cookies' : 'Upload cookies'"
+              @click="showCookieWarning = true"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="17 8 12 3 7 8"/>
+                <line x1="12" y1="3" x2="12" y2="15"/>
+              </svg>
+            </button>
+
+            <!-- Toggle: disabled + tooltip when no file -->
+            <label
+              class="toggle-switch"
+              :class="{ 'toggle-switch--disabled': !cookieFileSet }"
+              :title="!cookieFileSet ? 'Upload a cookie file to enable this setting.' : ''"
+            >
+              <input
+                type="checkbox"
+                :checked="cookiesEnabled"
+                :disabled="!cookieFileSet"
+                @change="onCookiesEnabledToggle"
+              />
+              <span class="slider" />
+            </label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Auto Renamer ───────────────────────────────────────────────────── -->
+    <section class="settings-section">
+      <h3 class="section-heading">Auto Renamer</h3>
+
       <div class="setting-row">
         <div class="setting-label-col">
           <span class="setting-label">Auto rename</span>
@@ -333,11 +445,6 @@ async function handleFactoryReset() {
           </label>
         </div>
       </div>
-    </section>
-
-    <!-- ── Auto Renamer ───────────────────────────────────────────────────── -->
-    <section class="settings-section">
-      <h3 class="section-heading">Auto Renamer</h3>
 
       <div class="setting-row setting-row--block">
         <div class="setting-label-col">
@@ -406,7 +513,7 @@ async function handleFactoryReset() {
 
       <div class="setting-row">
         <div class="setting-label-col">
-          <span class="setting-label">Remove segments</span>
+          <span class="setting-label">Enable SponsorBlock</span>
           <span class="setting-desc">
             Automatically remove segments using the
             <a href="https://sponsor.ajay.app" target="_blank" rel="noopener noreferrer" class="about-link">SponsorBlock ↗</a>
@@ -527,9 +634,27 @@ async function handleFactoryReset() {
 
       <div class="danger-row">
         <div class="danger-label-col">
+          <span class="setting-label">Delete Cookie File</span>
+          <span class="setting-desc">
+            Removes the uploaded cookie file. Playlists and settings are not affected.
+          </span>
+        </div>
+        <div class="danger-control-col">
+          <ConfirmButton
+            :disabled="!cookieFileSet"
+            disabled-title="No cookie file configured."
+            label="Delete Cookies"
+            danger-label="Yes, delete"
+            @confirm="deleteCookieFile"
+          />
+        </div>
+      </div>
+
+      <div class="danger-row">
+        <div class="danger-label-col">
           <span class="setting-label">Factory Reset</span>
           <span class="setting-desc">
-            Wipes everything — playlists, history, and all settings.
+            Wipes everything — playlists, history, all settings, and uploaded cookie file.
             Like a fresh install. Your downloaded files are not affected.
           </span>
         </div>
@@ -543,6 +668,22 @@ async function handleFactoryReset() {
       </div>
     </section>
   </div>
+
+  <!-- ── Cookie upload warning modal ──────────────────────────────────────── -->
+  <Teleport to="body">
+    <div v-if="showCookieWarning" class="cookie-modal-overlay" @click.self="showCookieWarning = false">
+      <div class="cookie-modal">
+        <p class="cookie-modal-text">
+          Uploading via the web UI sends your cookie file over HTTP (unencrypted). For a network-safe alternative, drop the file directly into your app data volume — see
+          <a href="https://github.com/WhydahGally/Siphon#cookie-file-security" target="_blank" rel="noopener noreferrer" class="cookie-modal-link">Cookie File Security</a>.
+        </p>
+        <div class="cookie-modal-actions">
+          <button class="cookie-modal-cancel" @click="showCookieWarning = false">Cancel</button>
+          <button class="cookie-modal-confirm" @click="confirmCookieUpload">Proceed</button>
+        </div>
+      </div>
+    </div>
+  </Teleport>
 </template>
 
 <style scoped>
@@ -769,6 +910,47 @@ code {
 .btn-cancel-sm { background: none; color: var(--text-muted); }
 .btn-cancel-sm:hover { color: var(--text); border-color: var(--text-muted); }
 
+/* ── Cookie controls ───────────────────────────────────────────────────── */
+.cookie-controls {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.toggle-switch--disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.toggle-switch--disabled input { pointer-events: none; }
+
+.btn-icon-upload {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  padding: 5px;
+  flex-shrink: 0;
+  margin-right: 15px;
+  transition: color 0.15s, border-color 0.15s, background 0.15s;
+}
+.btn-icon-upload:hover {
+  color: var(--text);
+  border-color: var(--text-muted);
+}
+.btn-icon-upload--active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-icon-upload--active:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: #fff;
+}
+
 /* ── MusicBrainz input ──────────────────────────────────────────────────── */
 .mb-input-row {
   display: flex;
@@ -967,6 +1149,80 @@ code {
   border-bottom: 1px solid var(--border);
 }
 .danger-row:last-child { border-bottom: none; }
+
+/* ── Cookie upload warning modal ─────────────────────────────────────────── */
+.cookie-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.cookie-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 24px;
+  max-width: 520px;
+  width: 90%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.cookie-modal-text {
+  font-size: 14px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin: 0;
+}
+
+.cookie-modal-link {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.cookie-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.cookie-modal-cancel {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  border-radius: var(--radius-sm);
+  padding: 7px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.cookie-modal-cancel:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+
+.cookie-modal-confirm {
+  background: var(--error);
+  border: 1px solid var(--error);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  padding: 7px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.cookie-modal-confirm:hover {
+  background: #c94444;
+  border-color: #c94444;
+}
 
 .danger-label-col {
   display: flex;
