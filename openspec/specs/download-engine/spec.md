@@ -1,9 +1,11 @@
 ## ADDED Requirements
 
 ### Requirement: Single public download function
-The engine SHALL expose one public function `download(url, output_dir, options, progress_callback=None, mb_user_agent=None, auto_rename=False, on_item_complete=None)`. The function SHALL accept either a single video URL or a playlist URL from any yt-dlp-supported platform. In the parallel sync path, the engine is called with individual video URLs (one per thread); playlist URL support is retained for standalone and `__main__` usage.
+The engine SHALL expose one public function `download(url, output_dir, options, progress_callback=None, mb_user_agent=None, auto_rename=False, on_item_complete=None, cookie_file=None)`. The function SHALL accept either a single video URL or a playlist URL from any yt-dlp-supported platform. In the parallel sync path, the engine is called with individual video URLs (one per thread); playlist URL support is retained for standalone and `__main__` usage.
 
 The function SHALL be safe to call from multiple threads simultaneously. Each invocation creates its own `YoutubeDL` instance with no shared mutable state between invocations.
+
+When `cookie_file` is a non-None string, it SHALL be passed to both the preflight `YoutubeDL` options and the main `_build_ydl_opts()` call as `ydl_opts["cookiefile"]`. When `None`, no `cookiefile` key SHALL appear in any ydl options dict.
 
 The `on_item_complete` parameter is an optional callable that receives an `ItemRecord` after each item is fully downloaded and renamed.
 
@@ -44,6 +46,14 @@ The `on_item_complete` parameter is an optional callable that receives an `ItemR
 #### Scenario: Single video URL with on_item_complete provided
 - **WHEN** a single video URL is passed and `on_item_complete` is a callable
 - **THEN** the engine SHALL invoke `on_item_complete` with a populated `ItemRecord` after the item is processed. `ItemRecord.playlist_id` SHALL be None.
+
+#### Scenario: cookie_file provided — passed to yt-dlp
+- **WHEN** `download(url, ..., cookie_file="/data/cookies.txt")` is called
+- **THEN** both the preflight and main `YoutubeDL` instances SHALL have `ydl_opts["cookiefile"] = "/data/cookies.txt"`
+
+#### Scenario: No cookie_file — no cookiefile opt
+- **WHEN** `download(url, ..., cookie_file=None)` is called
+- **THEN** no `cookiefile` key SHALL appear in any `YoutubeDL` options dict
 
 ---
 
@@ -168,3 +178,29 @@ The download engine SHALL explicitly configure `js_runtimes` and `remote_compone
 #### Scenario: Neither runtime is installed
 - **WHEN** neither `node` nor `deno` is on PATH and a download is started
 - **THEN** yt-dlp SHALL emit a warning that no supported JS runtime was found; downloads SHALL still proceed but some formats or speed may be degraded
+
+---
+
+### Requirement: enumerate_entries accepts cookie_file
+`enumerate_entries(url, cookie_file=None)` SHALL accept an optional `cookie_file` parameter. When non-None, the `YoutubeDL` options for the `extract_flat` call SHALL include `"cookiefile": cookie_file`.
+
+#### Scenario: enumerate_entries with cookie_file
+- **WHEN** `enumerate_entries(url, cookie_file="/data/cookies.txt")` is called
+- **THEN** the `extract_flat` yt-dlp call SHALL include `cookiefile` in its options
+
+#### Scenario: enumerate_entries without cookie_file
+- **WHEN** `enumerate_entries(url)` is called
+- **THEN** no `cookiefile` key SHALL appear in the yt-dlp options
+
+---
+
+### Requirement: sync_parallel and run_download_job accept cookie_file
+`sync_parallel()` and `run_download_job()` SHALL each accept a `cookie_file: Optional[str] = None` parameter and thread it through to all internal `download_worker()` and `download_parallel()` calls.
+
+#### Scenario: cookie_file threaded through sync_parallel
+- **WHEN** `sync_parallel(..., cookie_file="/data/cookies.txt")` is called
+- **THEN** every item downloaded in that sync SHALL have the cookie file path in its yt-dlp options
+
+#### Scenario: cookie_file threaded through run_download_job
+- **WHEN** `run_download_job(..., cookie_file="/data/cookies.txt")` is called
+- **THEN** every `download_worker()` invocation in that job SHALL receive the cookie file path
