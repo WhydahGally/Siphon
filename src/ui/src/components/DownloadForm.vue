@@ -6,15 +6,17 @@ import { useSettings } from '../composables/useSettings.js'
 
 const emit = defineEmits(['job-created'])
 const { showToast } = useToast()
-const { autoRename: globalAutoRename, sponsorBlockEnabled: globalSponsorBlock, loaded: settingsLoaded } = useSettings()
+const { autoRename: globalAutoRename, sponsorBlockEnabled: globalSponsorBlock, cookiesEnabled: globalCookiesEnabled, cookieFileSet, loaded: settingsLoaded } = useSettings()
 
 const url = ref('')
 const format = ref('mp3')
 const quality = ref('best')
 const autoRename = ref(globalAutoRename.value)
-watch(settingsLoaded, () => { autoRename.value = globalAutoRename.value }, { once: true })
+watch(globalAutoRename, (v) => { autoRename.value = v })
 const sponsorBlock = ref(globalSponsorBlock.value)
-watch(settingsLoaded, () => { sponsorBlock.value = globalSponsorBlock.value }, { once: true })
+watch(globalSponsorBlock, (v) => { sponsorBlock.value = v })
+const useCookies = ref(globalCookiesEnabled.value)
+watch(globalCookiesEnabled, (v) => { useCookies.value = v })
 const autoSync = ref(true)
 const interval = ref(86400)
 const editingInterval = ref(false)
@@ -111,6 +113,7 @@ async function handleDownload() {
     auto_rename: autoRename.value,
     watched: isPlaylist.value ? autoSync.value : false,
     sponsorblock_enabled: sponsorBlock.value,
+    use_cookies: useCookies.value,
   }
   if (isPlaylist.value && autoSync.value && interval.value) {
     body.check_interval_secs = Number(interval.value)
@@ -217,6 +220,15 @@ async function handleDownload() {
           <span class="slider" />
         </span>
         <span>SponsorBlock</span>
+      </label>
+
+      <!-- Cookies -->
+      <label v-if="settingsLoaded && cookieFileSet" class="toggle-label">
+        <span class="toggle-switch">
+          <input v-model="useCookies" type="checkbox" :disabled="loading" />
+          <span class="slider" />
+        </span>
+        <span>Cookies</span>
       </label>
 
       <!-- Auto sync (playlist only) — interval is inline -->
@@ -369,7 +381,7 @@ async function handleDownload() {
 .toggles-row {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: 30px;
   flex-wrap: wrap;
   min-height: 36px;
 }
