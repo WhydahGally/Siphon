@@ -148,13 +148,15 @@ def _compute_playlist_patterns() -> dict:
     return _PLAYLIST_PATTERNS
 
 
-def _fetch_playlist_info(url: str) -> dict:
+def _fetch_playlist_info(url: str, cookie_file: Optional[str] = None) -> dict:
     """Use yt-dlp to fetch playlist metadata without downloading."""
     ydl_opts = {
         "quiet": True,
         "extract_flat": "in_playlist",
         "skip_download": True,
     }
+    if cookie_file:
+        ydl_opts["cookiefile"] = cookie_file
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
     return info or {}
@@ -304,7 +306,8 @@ def api_add_playlist(body: PlaylistCreate):
     output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
 
     logger.info("Fetching playlist info…")
-    info = _fetch_playlist_info(url)
+    cookie_file = _get_cookie_file_path() if body.cookies_enabled else None
+    info = _fetch_playlist_info(url, cookie_file=cookie_file)
     playlist_id = info.get("id") or info.get("playlist_id")
     playlist_name = info.get("title") or info.get("playlist_title")
 
@@ -765,9 +768,10 @@ def api_playlist_patterns():
 def api_create_job(body: JobCreate):
     url = _normalise_url(body.url)
     output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
+    cookie_file = _get_cookie_file_path() if body.use_cookies else None
 
     try:
-        info = _fetch_playlist_info(url)
+        info = _fetch_playlist_info(url, cookie_file=cookie_file)
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Could not fetch URL info: {exc}")
 
@@ -806,7 +810,7 @@ def api_create_job(body: JobCreate):
         if body.watched and _scheduler is not None:
             _scheduler.add_playlist(playlist_id)
 
-        entries = enumerate_entries(url, cookie_file=_get_cookie_file_path() if body.use_cookies else None)
+        entries = enumerate_entries(url, cookie_file=cookie_file)
         entries = filter_entries(entries, playlist_id)
     else:
         # Single video
@@ -846,7 +850,6 @@ def api_create_job(body: JobCreate):
     options = build_options(body.format, body.quality)
     sponsorblock_categories = _resolve_sb_categories_for_job(body)
     mb_user_agent = registry.get_setting("mb_user_agent")
-    cookie_file = _get_cookie_file_path() if body.use_cookies else None
 
     t = threading.Thread(
         target=run_download_job,
@@ -1042,6 +1045,7 @@ def api_retry_failed_job(job_id: str):
     options = build_options(fmt, quality)
     mb_user_agent = registry.get_setting("mb_user_agent")
     sb_cats = registry.get_sponsorblock_categories(row) if row else list(registry._DEFAULT_SB_CATEGORIES)
+    cookie_file = _get_cookie_file_path(row)
 
     t = threading.Thread(
         target=run_download_job,
@@ -1058,6 +1062,7 @@ def api_retry_failed_job(job_id: str):
             noise_patterns=registry.get_noise_patterns(),
             job_store=_job_store,
             sponsorblock_categories=sb_cats,
+            cookie_file=cookie_file,
         ),
         daemon=True,
     )
