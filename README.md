@@ -118,6 +118,8 @@ Siphon communicates over HTTP (no TLS). If you are accessing Siphon over Wi-Fi f
 docker exec -i siphon sh -c 'cat > /app/.data/cookies.txt' < /path/to/cookies.txt
 ```
 
+> **Note:** If you copy the cookie file manually while Siphon is running, the backend will detect it on the next download or sync. However, the web UI will only reflect the change after a browser refresh.
+
 For ongoing encrypted access, place a TLS-terminating reverse proxy in front of Siphon.
 
 ## Contributing
@@ -199,14 +201,15 @@ Siphon is a wrapper around [yt-dlp](https://github.com/yt-dlp/yt-dlp). Many issu
 - Ensure that you are using the latest available version of Siphon. Siphon pins yt-dlp to a specific version and updates it with each release.
 - Try downloading the same URL directly with yt-dlp from inside the Siphon container: `docker exec siphon yt-dlp <url>`.
 - If yt-dlp fails, the issue is upstream. Check the yt-dlp version Siphon is using (shown in the web UI settings page) and search for matching issues in [yt-dlp issues](https://github.com/yt-dlp/yt-dlp/issues).
-- If yt-dlp works fine with the same version or there is no Siphon update available, we want to hear about it.
+- If yt-dlp works fine with the same version or if there is no Siphon update available, we want to hear about it.
 
-**When opening an issue, please include:**
+**When opening an issue, include the following:**
 1. A description of the problem and what you expected to happen.
 2. The playlist or video URL that triggered the issue.
-3. Your Siphon version and yt-dlp version (shown in the web UI settings page or use the CLI).
-4. The relevant section of your [log file](#log-file) (set log level to `DEBUG` first to capture more detail).
-5. Steps to reproduce the issue, if possible.
+3. Your Siphon configuration at the time the issue occurred (auto-rename, sync interval, sb etc.).
+4. Your Siphon version and yt-dlp version (shown in the web UI settings page or use the CLI).
+5. The relevant section of your [log file](#log-file) (set log level to `DEBUG` first to capture more detail).
+6. Steps to reproduce the issue.
 
 ### Logging
 
