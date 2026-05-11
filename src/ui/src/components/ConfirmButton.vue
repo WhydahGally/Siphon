@@ -4,6 +4,8 @@ import { ref, onBeforeUnmount } from 'vue'
 const props = defineProps({
   label: { type: String, required: true },
   dangerLabel: { type: String, default: 'Confirm' },
+  disabled: { type: Boolean, default: false },
+  disabledTitle: { type: String, default: '' },
 })
 const emit = defineEmits(['confirm'])
 
@@ -11,6 +13,7 @@ const confirming = ref(false)
 let timer = null
 
 function startConfirm() {
+  if (props.disabled) return
   confirming.value = true
   timer = setTimeout(() => {
     confirming.value = false
@@ -38,7 +41,14 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="confirm-button" :class="{ confirming }">
-    <button v-if="!confirming" class="btn-default" @click="startConfirm">
+    <button
+      v-if="!confirming"
+      class="btn-default"
+      :class="{ 'btn-default--disabled': disabled }"
+      :disabled="disabled"
+      :title="disabled ? disabledTitle : undefined"
+      @click="startConfirm"
+    >
       <slot>{{ label }}</slot>
     </button>
     <template v-else>
@@ -76,6 +86,14 @@ onBeforeUnmount(() => {
 .btn-default:hover {
   color: var(--error);
   border-color: var(--error);
+}
+
+.btn-default--disabled,
+.btn-default--disabled:hover {
+  opacity: 0.4;
+  cursor: not-allowed;
+  color: var(--text-muted);
+  border-color: var(--border);
 }
 
 .btn-danger {

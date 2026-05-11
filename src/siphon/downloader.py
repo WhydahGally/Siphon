@@ -32,6 +32,7 @@ def download(
     auto_rename: bool = False,
     on_item_complete: Optional[Callable[[ItemRecord], None]] = None,
     noise_patterns: Optional[list] = None,
+    cookie_file: Optional[str] = None,
 ) -> None:
     """Download a playlist or single video from any yt-dlp-supported platform.
 
@@ -96,6 +97,8 @@ def download(
     # format resolution or download is triggered. _type of "playlist" or "channel"
     # means grouped content; anything else (including absent _type) is single video.
     _preflight_opts = {"extract_flat": True, "quiet": True, "skip_download": True}
+    if cookie_file is not None:
+        _preflight_opts["cookiefile"] = cookie_file
     with YoutubeDL(_preflight_opts) as _ydl:
         _info = _ydl.extract_info(url, download=False) or {}
     is_playlist = _info.get("_type") in ("playlist", "channel")
@@ -110,7 +113,7 @@ def download(
         logger.debug("URL identified as single video (_type=%s). Output template: %s", _info.get("_type"), output_template)
 
     # Build the yt-dlp options dict.
-    ydl_opts = _build_ydl_opts(options, output_template, progress_callback, mb_user_agent)
+    ydl_opts = _build_ydl_opts(options, output_template, progress_callback, mb_user_agent, cookie_file)
 
     logger.info(
         "Starting download: %s (mode=%s)",
@@ -152,6 +155,7 @@ def _build_ydl_opts(
     output_template: str,
     progress_callback: Optional[Callable[[dict], None]],
     mb_user_agent: Optional[str] = None,
+    cookie_file: Optional[str] = None,
 ) -> dict:
     # Thread-safety note: this function and the YoutubeDL instance it feeds
     # are stateless with respect to module-level globals — each call creates
@@ -178,6 +182,9 @@ def _build_ydl_opts(
         "js_runtimes": {"node": {}, "deno": {}},
         "remote_components": ["ejs:github"],
     }
+
+    if cookie_file is not None:
+        ydl_opts["cookiefile"] = cookie_file
 
     if options.mode == "video" and options.quality != "best":
         ydl_opts["match_filter"] = _make_quality_check_filter(options)
@@ -324,7 +331,7 @@ class _YtdlpLogger:
 # Playlist enumeration & filtering
 # ---------------------------------------------------------------------------
 
-def enumerate_entries(url: str) -> List[dict]:
+def enumerate_entries(url: str, cookie_file: Optional[str] = None) -> List[dict]:
     """
     Enumerate all entries in a playlist using extract_flat (no download).
     Returns a list of entry dicts, each with at least 'id', 'url', 'title'.
@@ -334,6 +341,8 @@ def enumerate_entries(url: str) -> List[dict]:
         "extract_flat": True,
         "skip_download": True,
     }
+    if cookie_file is not None:
+        ydl_opts["cookiefile"] = cookie_file
     with YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
 
@@ -415,6 +424,7 @@ def download_worker(
     auto_rename: bool = False,
     noise_patterns: Optional[list] = None,
     on_progress: Optional[Any] = None,
+    cookie_file: Optional[str] = None,
 ) -> Tuple[Optional[ItemRecord], Optional[FailureRecord]]:
     """
     Worker function: download a single video entry.
@@ -468,6 +478,7 @@ def download_worker(
             auto_rename=auto_rename,
             on_item_complete=on_item,
             noise_patterns=noise_patterns,
+            cookie_file=cookie_file,
         )
     except Exception as exc:
         err = str(exc)
@@ -529,6 +540,7 @@ def download_parallel(
     max_workers: int,
     auto_rename: bool = False,
     noise_patterns: Optional[list] = None,
+    cookie_file: Optional[str] = None,
 ) -> Tuple[List[ItemRecord], List[FailureRecord]]:
     """
     Download entries concurrently using a thread pool.
@@ -558,7 +570,7 @@ def download_parallel(
             fut = executor.submit(
                 download_worker,
                 entry, playlist_id, playlist_name, options, output_dir,
-                mb_user_agent, auto_rename, noise_patterns,
+                mb_user_agent, auto_rename, noise_patterns, None, cookie_file,
             )
             futures[fut] = entry
 
@@ -598,6 +610,7 @@ def run_download_job(
     auto_rename: bool = False,
     noise_patterns: Optional[list] = None,
     sponsorblock_categories: Optional[list] = None,
+    cookie_file: Optional[str] = None,
 ) -> None:
     """
     Background thread: drives per-item state transitions and downloads.
@@ -650,6 +663,7 @@ def run_download_job(
             auto_rename=auto_rename,
             noise_patterns=noise_patterns,
             on_progress=_on_progress,
+            cookie_file=cookie_file,
         )
         if failure is not None:
             if job_store is not None:
@@ -696,6 +710,7 @@ def sync_parallel(
     on_sync_info: Optional[Callable] = None,
     on_sync_done: Optional[Callable] = None,
     sponsorblock_categories: Optional[list] = None,
+    cookie_file: Optional[str] = None,
 ) -> None:
     try:
         options = build_options(fmt, quality)
@@ -703,7 +718,7 @@ def sync_parallel(
             options.sponsorblock_categories = sponsorblock_categories
 
         logger.info("Enumerating '%s'…", playlist_name)
-        entries = enumerate_entries(url)
+        entries = enumerate_entries(url, cookie_file=cookie_file)
         if not entries:
             logger.warning("No entries found for playlist '%s' (url=%s)", playlist_name, url)
             registry.update_last_synced(playlist_id)
@@ -736,6 +751,7 @@ def sync_parallel(
             max_workers=max_workers,
             auto_rename=auto_rename,
             noise_patterns=noise_patterns,
+            cookie_file=cookie_file,
         )
 
         registry.update_last_synced(playlist_id)
@@ -756,6 +772,7 @@ def run_sync_failed_for_playlist(
     row,
     max_workers: int,
     default_output_dir: str,
+    cookie_file: Optional[str] = None,
 ) -> None:
     """Run sync-failed logic for a single playlist row (called in a thread)."""
     pid = row["id"]
@@ -777,6 +794,7 @@ def run_sync_failed_for_playlist(
         max_workers=max_workers,
         auto_rename=bool(row["auto_rename"]),
         noise_patterns=registry.get_noise_patterns(),
+        cookie_file=cookie_file,
     )
     logger.info("'%s': %d recovered, %d still failing.", pname, len(successes), len(new_failures))
 
