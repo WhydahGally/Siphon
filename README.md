@@ -2,24 +2,24 @@
 
 A self-hosted playlist downloader & watcher that automatically downloads new additions on a schedule. Built to address shortcomings found in tools like [MeTube](https://github.com/alexta69/metube).
 
-Siphon uses [YT-DLP](https://github.com/yt-dlp/yt-dlp) and runs as a daemon with a web UI — register your playlists, set a schedule, and forget about it. New tracks show up in your library automatically. Any platform supported by yt-dlp works, though Siphon is built and tested with a focus on YouTube.
+Siphon uses [YT-DLP](https://github.com/yt-dlp/yt-dlp) and runs as a daemon with a web UI. Register your playlists, set a schedule, and forget about it. New tracks show up in your library automatically. Any platform supported by yt-dlp works, though Siphon is built and tested with a focus on YouTube.
 
-Siphon is primarily developed using spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec/tree/main). Every feature starts as a specification before a single line of code is written. This is not vibe coding — there are actual specs, actual designs, and actual task lists. Revolutionary, right?
+Siphon is primarily developed using spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec/tree/main). Every feature starts as a specification before a single line of code is written. This is not vibe coding. There are actual specs, actual designs, and actual task lists. Revolutionary, right?
 
 ## Features
 
-- **Download** — Entire playlists or single videos, with configurable concurrent workers.
-- **Format selection** — Download audio (MP3, OPUS) or video formats (MP4, MKV, WEBM) with quality options.
-- **Playlist sync** — Monitors playlists and auto-downloads newly added videos.
-- **Scheduled syncing** — Configurable per-playlist sync intervals (hourly, daily, whatever you want).
-- **Smart auto-renaming** — Cleans up filenames and titles using embedded metadata and MusicBrainz lookups.
-- **Manual renaming** — Manually rename individual downloaded items from the Web UI or CLI. Changes are applied on disk and in metadata.
-- **SponsorBlock integration** — Automatically removes sponsor segments, intros, outros and non-music sections from downloads using the [SponsorBlock](https://sponsor.ajay.app) community database.
-- **Cookie support** — Upload a [browser cookie](#browser-cookies) file to unlock private playlists, age-restricted videos, and members-only content.
-- **Audio metadata embedding** — Embeds artist, title, album and cover art into audio files.
-- **Web UI** — Manage playlists, view download history, configure settings and monitor progress from your browser.
-- **CLI** — Full command-line interface for automation, scripting and debugging.
-- **Container-first** — Designed to run in Docker, built for Unraid.
+- **Download** - Entire playlists or single videos, with configurable concurrent workers.
+- **Format selection** - Download audio (MP3, OPUS) or video formats (MP4, MKV, WEBM) with quality options.
+- **Playlist sync** - Monitors playlists and auto-downloads newly added videos.
+- **Scheduled syncing** - Configurable per-playlist sync intervals (hourly, daily, whatever you want).
+- **Smart auto-renaming** - Cleans up filenames and titles using embedded metadata and MusicBrainz lookups.
+- **Manual renaming** - Manually rename individual downloaded items from the Web UI or CLI. Changes are applied on disk and in metadata.
+- **SponsorBlock integration** - Automatically removes sponsor segments, intros, outros and non-music sections from downloads using the [SponsorBlock](https://sponsor.ajay.app) community database.
+- **Cookie support** - Upload a [browser cookie](#browser-cookies) file to unlock private playlists, age-restricted videos, and members-only content.
+- **Audio metadata embedding** - Embeds artist, title, album and cover art into audio files.
+- **Web UI** - Manage playlists, view download history, configure settings and monitor progress from your browser.
+- **CLI** - Full command-line interface for automation, scripting and debugging.
+- **Container-first** - Designed to run in Docker, built for Unraid.
 
 
 ## Screenshots
@@ -39,9 +39,9 @@ Install it from Community Apps (Coming soon):
 1. Open the **Community Apps** plugin in your Unraid dashboard.
 2. Search for **Siphon**.
 3. Click **Install** and configure:
-   - **Downloads path** — where your media gets saved (e.g. `/mnt/user/downloads/siphon/`)
-   - **App Data path** — where the database and logs live (e.g. `/mnt/user/appdata/siphon/`)
-   - **PUID/PGID** — user/group IDs for file ownership (defaults: `99`/`100`)
+   - **Downloads path** - where your media gets saved (e.g. `/mnt/user/downloads/siphon/`)
+   - **App Data path** - where the database and logs live (e.g. `/mnt/user/appdata/siphon/`)
+   - **PUID/PGID** - user/group IDs for file ownership (defaults: `99`/`100`)
 4. Start the container and open the web UI on port **8778**.
 
 ### Docker
@@ -105,8 +105,8 @@ Some content requires authentication to download (private playlists, age-restric
 
 #### Configuring cookies
 
-- **Web UI** — Go to Settings → Cookies and click the upload button.
-- **CLI** — `siphon config cookie-file /path/to/cookies.txt`
+- **Web UI** - Go to Settings → Cookies and click the upload button.
+- **CLI** - `siphon config cookie-file /path/to/cookies.txt`
 
 #### Cookie File Security
 
@@ -124,11 +124,11 @@ For ongoing encrypted access, place a TLS-terminating reverse proxy in front of 
 
 ## Contributing
 
-Contributions are welcome! AI-generated code is also welcome — but only if it follows spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec/tree/main). No yolo PRs. Every change needs specs committed alongside the code.
+Contributions are welcome! AI-generated code is also welcome, but only if it follows spec-driven development through [OpenSpec](https://github.com/Fission-AI/OpenSpec/tree/main). No yolo PRs. Every change needs specs committed alongside the code.
 
 **Before opening a PR:**
-- **New features** — open a [Discussion](https://github.com/WhydahGally/Siphon/discussions) first to align on scope and approach before writing any specs or code.
-- **Bug fixes** — open an [Issue](https://github.com/WhydahGally/Siphon/issues) first to confirm the bug and agree on the fix.
+- **New features** - open a [Discussion](https://github.com/WhydahGally/Siphon/discussions) first to align on scope and approach before writing any specs or code.
+- **Bug fixes** - open an [Issue](https://github.com/WhydahGally/Siphon/issues) first to confirm the bug and agree on the fix.
 
 **When raising a PR:**
 - Include the OpenSpec artifacts (proposal, design, specs, tasks) in the `openspec/changes/` directory.
@@ -178,11 +178,11 @@ pytest tests/unit/ -v
 export E2E_PLAYLIST_URL="https://www.youtube.com/playlist?list=..."
 export E2E_SINGLE_VIDEO_URL="https://www.youtube.com/watch?v=..."
 export E2E_MB_USER_AGENT="YourApp/1.0 (you@example.com)"
-# macOS only — fixes SSL verification for MusicBrainz lookups
+# macOS only - fixes SSL verification for MusicBrainz lookups
 export REQUESTS_CA_BUNDLE=/opt/homebrew/etc/openssl@3/cert.pem
 ```
 
-Then run (do **not** have the dev daemon running — the suite manages its own):
+Then run (do **not** have the dev daemon running - the suite manages its own):
 
 ```bash
 make -f tests/Makefile e2e
@@ -193,9 +193,9 @@ make -f tests/Makefile e2e
 Siphon is a wrapper around [yt-dlp](https://github.com/yt-dlp/yt-dlp). Many issues - especially download failures, authentication errors, format extraction problems are caused by yt-dlp, not Siphon.
 
 **Common yt-dlp issues:**
-- **"Video unavailable"** — the video is private, deleted, or region-locked.
-- **"Sign in to confirm your age"** — requires cookie authentication. See the [Browser Cookies](#browser-cookies) section to configure a cookie file.
-- **Format extraction errors** — usually fixed by updating yt-dlp. Siphon pins a specific yt-dlp version; check if a newer version resolves it.
+- **"Video unavailable"** - the video is private, deleted, or region-locked.
+- **"Sign in to confirm your age"** - requires cookie authentication. See the [Browser Cookies](#browser-cookies) section to configure a cookie file.
+- **Format extraction errors** - usually fixed by updating yt-dlp. Siphon pins a specific yt-dlp version; check if a newer version resolves it.
 
 **Before opening an issue, check if it's a yt-dlp problem:**
 - Ensure that you are using the latest available version of Siphon. Siphon pins yt-dlp to a specific version and updates it with each release.
