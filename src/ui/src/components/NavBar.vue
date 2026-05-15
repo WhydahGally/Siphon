@@ -17,7 +17,7 @@ function navigate(page) {
 
 <template>
   <nav class="navbar">
-    <span class="logo">
+    <span class="logo" @click="emit('navigate', 'dashboard')" role="button">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="25" height="25" aria-hidden="true">
         <path d="M6 10 h36 L29 27 v13 H19 V27 Z" fill="currentColor"/>
         <line x1="9"  y1="16" x2="39" y2="16" stroke="white" stroke-width="2.5" stroke-opacity="0.35"/>
@@ -43,7 +43,7 @@ function navigate(page) {
     <button
       class="settings-btn"
       :class="{ active: currentPage === 'settings' }"
-      :title="'Settings'"
+      title="Settings"
       @click="emit('navigate', 'settings')"
     >
       <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -100,7 +100,7 @@ function navigate(page) {
   border-bottom: 1px solid var(--border);
   position: sticky;
   top: 0;
-  z-index: 110;
+  z-index: 50;
 }
 
 .logo {
@@ -113,6 +113,7 @@ function navigate(page) {
   display: flex;
   align-items: center;
   gap: 8px;
+  cursor: default;
 }
 
 .logo svg {
@@ -141,6 +142,7 @@ function navigate(page) {
   color: var(--text-muted);
   font-size: 14px;
   font-weight: 500;
+  cursor: default;
   transition: color 0.15s, background 0.15s;
 }
 
@@ -176,6 +178,7 @@ function navigate(page) {
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: default;
   transition: color 0.15s, background 0.15s;
 }
 
@@ -211,7 +214,7 @@ function navigate(page) {
   position: fixed;
   inset: 0;
   background: rgba(0, 0, 0, 0.5);
-  z-index: 100;
+  z-index: 20;
   display: flex;
   justify-content: flex-end;
 }

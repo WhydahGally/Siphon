@@ -103,7 +103,7 @@ class TestStripNoise:
         assert strip_noise(title, patterns=[]) == title
 
     def test_custom_pattern(self):
-        result = strip_noise("Song (Demo)", patterns=[r"demo"])
+        result = strip_noise("Song (Demo)", patterns=[r'[\(\[]\s*demo\s*[\)\]]'])
         assert "(Demo)" not in result
 
     def test_iterative_stripping(self):

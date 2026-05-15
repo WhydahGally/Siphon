@@ -2,7 +2,10 @@ import logging
 import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+import urllib.request
+import urllib.error
 
 from yt_dlp import YoutubeDL
 from yt_dlp.postprocessor import PostProcessor
@@ -33,7 +36,7 @@ def download(
     on_item_complete: Optional[Callable[[ItemRecord], None]] = None,
     noise_patterns: Optional[list] = None,
     cookie_file: Optional[str] = None,
-) -> None:
+) -> Optional[str]:
     """Download a playlist or single video from any yt-dlp-supported platform.
 
     Args:
@@ -113,7 +116,27 @@ def download(
         logger.debug("URL identified as single video (_type=%s). Output template: %s", _info.get("_type"), output_template)
 
     # Build the yt-dlp options dict.
-    ydl_opts = _build_ydl_opts(options, output_template, progress_callback, mb_user_agent, cookie_file)
+    ydl_opts, ydl_logger = _build_ydl_opts(options, output_template, progress_callback, mb_user_agent, cookie_file)
+
+    # SB outcome tracking: if SB is enabled, track outcome via a lightweight PP
+    # that runs right after SponsorBlockPP and reads sponsorblock_chapters from info_dict.
+    sb_outcome: Optional[str] = None
+    if not options.sponsorblock_categories:
+        sb_outcome = "disabled"
+
+    sb_outcome_captured: List[Optional[str]] = [None]
+
+    class _SBOutcomeCapture(PostProcessor):
+        """Runs after SponsorBlockPP to capture the outcome."""
+        def run(self, info):
+            chapters = info.get("sponsorblock_chapters") or []
+            if chapters:
+                sb_outcome_captured[0] = "success"
+            elif ydl_logger.sb_warnings:
+                sb_outcome_captured[0] = "failed"
+            else:
+                sb_outcome_captured[0] = "no_segments"
+            return [], info
 
     logger.info(
         "Starting download: %s (mode=%s)",
@@ -126,6 +149,10 @@ def download(
             logger.info("SponsorBlock enabled — removing categories: %s", options.sponsorblock_categories)
             ydl.add_post_processor(
                 SponsorBlockPP(ydl, categories=options.sponsorblock_categories),
+                when="after_filter",
+            )
+            ydl.add_post_processor(
+                _SBOutcomeCapture(ydl),
                 when="after_filter",
             )
             ydl.add_post_processor(
@@ -143,7 +170,20 @@ def download(
         )
         ydl.download([url])
 
-    logger.info("Download complete: %s", url)
+    # Determine final SB outcome.
+    if sb_outcome == "disabled":
+        pass  # Already set
+    elif sb_outcome_captured[0] is not None:
+        sb_outcome = sb_outcome_captured[0]
+    elif options.sponsorblock_categories:
+        # Hook never fired (e.g. SponsorBlockPP was skipped by yt-dlp)
+        if ydl_logger.sb_warnings:
+            sb_outcome = "failed"
+        else:
+            sb_outcome = "no_segments"
+
+    logger.info("Download complete: %s (sb_outcome=%s)", url, sb_outcome)
+    return sb_outcome
 
 
 # ---------------------------------------------------------------------------
@@ -156,13 +196,14 @@ def _build_ydl_opts(
     progress_callback: Optional[Callable[[dict], None]],
     mb_user_agent: Optional[str] = None,
     cookie_file: Optional[str] = None,
-) -> dict:
+) -> Tuple[dict, "_YtdlpLogger"]:
     # Thread-safety note: this function and the YoutubeDL instance it feeds
     # are stateless with respect to module-level globals — each call creates
     # a fresh dict and a fresh YoutubeDL instance (in download()).
     # It is safe to call download() concurrently from multiple threads.
     """Assemble the yt-dlp options dict from DownloadOptions."""
 
+    ydl_logger = _YtdlpLogger()
     ydl_opts: dict = {
         "outtmpl": output_template,
         # Skip unavailable videos (private, deleted, region-blocked) instead of aborting.
@@ -170,7 +211,7 @@ def _build_ydl_opts(
         # Suppress yt-dlp's own console output — we handle logging ourselves.
         "quiet": True,
         "no_warnings": False,  # Allow yt-dlp warnings to surface through its logger.
-        "logger": _YtdlpLogger(),
+        "logger": ydl_logger,
         "progress_hooks": [_make_hook(options, progress_callback)],
         # YouTube JS challenge solving (signature decryption + n-param throttling).
         # yt-dlp needs two things:
@@ -202,7 +243,7 @@ def _build_ydl_opts(
         logger.debug("Audio format: %s | postprocessors: %s", options.audio_format, ydl_opts["postprocessors"])
 
     logger.debug("Postprocessor chain: %s", ydl_opts.get('postprocessors', []))
-    return ydl_opts
+    return ydl_opts, ydl_logger
 
 
 class _RenamePostProcessor(PostProcessor):
@@ -313,6 +354,9 @@ def _make_hook(options: DownloadOptions, progress_callback: Optional[Callable[[d
 class _YtdlpLogger:
     """Routes yt-dlp internal messages to Python's logging module."""
 
+    def __init__(self) -> None:
+        self.sb_warnings: List[str] = []
+
     def debug(self, msg: str) -> None:
         # yt-dlp prefixes info-level messages with "[debug]" in debug mode.
         logger.debug("[yt-dlp] %s", msg)
@@ -322,9 +366,55 @@ class _YtdlpLogger:
 
     def warning(self, msg: str) -> None:
         logger.warning("[yt-dlp] %s", msg)
+        if "unable to communicate with sponsorblock" in msg.lower():
+            self.sb_warnings.append(msg)
 
     def error(self, msg: str) -> None:
         logger.error("[yt-dlp] %s", msg)
+        if "unable to communicate with sponsorblock" in msg.lower():
+            self.sb_warnings.append(msg)
+
+
+# ---------------------------------------------------------------------------
+# SponsorBlock health check
+# ---------------------------------------------------------------------------
+
+_SB_HEALTH_URL = "https://sponsor.ajay.app/api/skipSegments?videoID=dQw4w9WgXcQ"
+_SB_TIMEOUT = 3  # seconds
+_SB_MAX_RETRIES = 3
+
+
+def check_sb_health() -> Dict[str, str]:
+    """
+    Probe the SponsorBlock API to check availability.
+
+    Returns {"status": "healthy"} on success, or
+    {"status": "unhealthy", "reason": "<reason>"} on failure.
+
+    Retries up to 3 times on timeout only. No retry on 4xx/5xx.
+    """
+    for attempt in range(_SB_MAX_RETRIES):
+        try:
+            req = urllib.request.Request(_SB_HEALTH_URL, method="GET")
+            with urllib.request.urlopen(req, timeout=_SB_TIMEOUT) as resp:
+                if resp.status == 200:
+                    return {"status": "healthy"}
+                # Unexpected 2xx/3xx — treat as healthy
+                return {"status": "healthy"}
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                # 404 = API reachable, no segments for probe video — healthy
+                return {"status": "healthy"}
+            if 400 <= e.code < 500:
+                return {"status": "unhealthy", "reason": "client_error"}
+            else:
+                return {"status": "unhealthy", "reason": "server_error"}
+        except (urllib.error.URLError, OSError, TimeoutError):
+            # Timeout or network error — retry
+            if attempt < _SB_MAX_RETRIES - 1:
+                continue
+            return {"status": "unhealthy", "reason": "timeout"}
+    return {"status": "unhealthy", "reason": "timeout"}
 
 
 # ---------------------------------------------------------------------------
@@ -370,31 +460,41 @@ def enumerate_entries(url: str, cookie_file: Optional[str] = None) -> List[dict]
 def filter_entries(
     entries: List[dict],
     playlist_id: str,
-) -> List[dict]:
+) -> Tuple[List[dict], int]:
     """
     Filter entries for dispatch:
     - Skip if already in items table
     - Skip if in ignored_items
     - Skip (with WARNING) if in failed_downloads with attempt_count >= 3
-    Returns the list of entries to download.
+    Returns (entries_to_download, skipped_failure_count).
     """
     downloaded = registry.get_downloaded_ids(playlist_id)
     to_dispatch = []
+    skipped_count = 0
     for entry in entries:
         vid = entry["id"]
         if vid in downloaded:
             continue
         if registry.is_ignored(vid, playlist_id):
             continue
-        attempt_count = registry.get_failed_attempt_count(vid, playlist_id)
-        if attempt_count >= 3:
+        failed = registry.get_failed_download(vid, playlist_id)
+        if failed and failed["attempt_count"] >= 3:
             logger.warning(
                 "Skipping '%s' (id=%s): failed %d times — use 'siphon sync-failed' to retry manually.",
-                entry["title"], vid, attempt_count,
+                entry["title"], vid, failed["attempt_count"],
             )
+            error_msg = failed.get("error_message") or "Unknown error"
+            registry.append_playlist_warning(
+                playlist_id,
+                "sync_error",
+                f"{entry['title']}: {error_msg} ({failed['attempt_count']} attempts)",
+                video_id=vid,
+            )
+            skipped_count += 1
             continue
         to_dispatch.append(entry)
-    return to_dispatch
+
+    return to_dispatch, skipped_count
 
 
 def _fmt_size(path: str) -> str:
@@ -469,7 +569,7 @@ def download_worker(
     start = time.monotonic()
 
     try:
-        download(
+        sb_outcome = download(
             url=video_url,
             output_dir=item_output_dir,
             options=options,
@@ -511,6 +611,8 @@ def download_worker(
     if playlist_id is not None:
         registry.insert_item(record, playlist_id)
         registry.clear_failed(video_id, playlist_id)  # no-op if no prior failure
+        if sb_outcome:
+            registry.update_item_sb_outcome(video_id, playlist_id, sb_outcome)
 
     filename = record.renamed_to or title
 
@@ -691,6 +793,7 @@ def run_download_job(
 
     if playlist_id is not None:
         registry.update_last_synced(playlist_id)
+        registry.aggregate_sb_warnings(playlist_id)
 
     if job_store is not None:
         job_store.notify_terminal(job_id)
@@ -726,11 +829,15 @@ def sync_parallel(
                 on_sync_info(playlist_id, 0)
             return
 
-        to_download = filter_entries(entries, playlist_id)
+        to_download, skipped = filter_entries(entries, playlist_id)
         if not to_download:
-            registry.update_last_synced(playlist_id)
-            total = registry.count_items(playlist_id)
-            logger.info("'%s': Already up to date. (%d total)", playlist_name, total)
+            if not skipped:
+                registry.update_last_synced(playlist_id)
+                total = registry.count_items(playlist_id)
+                logger.info("'%s': Already up to date. (%d total)", playlist_name, total)
+            else:
+                total = registry.count_items(playlist_id)
+                logger.warning("'%s': %d item(s) skipped (max retries reached). (%d total)", playlist_name, skipped, total)
             if on_sync_info:
                 on_sync_info(playlist_id, 0)
             return
@@ -754,15 +861,28 @@ def sync_parallel(
             cookie_file=cookie_file,
         )
 
-        registry.update_last_synced(playlist_id)
+        registry.aggregate_sb_warnings(playlist_id)
         total = registry.count_items(playlist_id)
-        logger.info("'%s': %d new item(s) added. (%d total)", playlist_name, len(successes), total)
 
         if failures:
+            logger.warning("'%s': %d new item(s) added, %d failed. (%d total)", playlist_name, len(successes), len(failures), total)
             logger.info("Failures (%d):", len(failures))
             for f in failures:
                 logger.info("  \u2717 %s", f.title)
                 logger.info("    %s", f.error_message)
+                # Surface each failure as its own warning
+                registry.append_playlist_warning(
+                    playlist_id,
+                    "sync_error",
+                    f"{f.title}: {f.error_message}",
+                    video_id=f.video_id,
+                )
+            # Only update last_synced if some items succeeded
+            if successes:
+                registry.update_last_synced(playlist_id)
+        else:
+            registry.update_last_synced(playlist_id)
+            logger.info("'%s': %d new item(s) added. (%d total)", playlist_name, len(successes), total)
     finally:
         if on_sync_done:
             on_sync_done(playlist_id)

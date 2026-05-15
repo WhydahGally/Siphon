@@ -526,6 +526,22 @@ def api_get_playlist_items(playlist_id: str):
     return registry.list_items_for_playlist(playlist_id)
 
 
+@app.delete("/playlists/{playlist_id}/warnings", status_code=204)
+def api_clear_playlist_warnings(playlist_id: str):
+    row = registry.get_playlist_by_id(playlist_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Playlist not found.")
+    registry.clear_playlist_warnings(playlist_id)
+
+
+@app.delete("/playlists/{playlist_id}/warnings/{video_id}", status_code=204)
+def api_clear_playlist_warning(playlist_id: str, video_id: str):
+    row = registry.get_playlist_by_id(playlist_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Playlist not found.")
+    registry.clear_playlist_warning(playlist_id, video_id)
+
+
 @app.put("/playlists/{playlist_id}/items/{video_id}/rename")
 def api_rename_playlist_item(playlist_id: str, video_id: str, body: RenameRequest):
     """Rename a downloaded playlist item on disk and in the DB."""
@@ -750,6 +766,17 @@ def api_health():
     return {"status": "ok", "watched_playlists": watched}
 
 
+@app.get("/health/sponsorblock")
+def api_health_sponsorblock():
+    """Probe SponsorBlock API availability."""
+    from siphon.downloader import check_sb_health
+    result = check_sb_health()
+    if result["status"] == "unhealthy":
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=503, content=result)
+    return result
+
+
 @app.get("/playlist-patterns")
 def api_playlist_patterns():
     """Return yt-dlp-derived URL patterns that indicate a playlist/channel URL.
@@ -810,8 +837,16 @@ def api_create_job(body: JobCreate):
         if body.watched and _scheduler is not None:
             _scheduler.add_playlist(playlist_id)
 
+        if body.register_only:
+            return {
+                "job_id": None,
+                "playlist_id": playlist_id,
+                "existing_playlist": existing_playlist,
+                "registered": True,
+            }
+
         entries = enumerate_entries(url, cookie_file=cookie_file)
-        entries = filter_entries(entries, playlist_id)
+        entries, _ = filter_entries(entries, playlist_id)
     else:
         # Single video
         video_id = info.get("id")
@@ -1149,6 +1184,16 @@ def _playlist_to_dict(row) -> dict:
         d["sponsorblock_enabled"] = registry.get_setting("sponsorblock_enabled") != "false"
     else:
         d["sponsorblock_enabled"] = sb_cats != ""
+    # Parse warnings JSON into a list (empty array if NULL/missing)
+    import json as _json
+    raw_warnings = d.get("warnings")
+    if raw_warnings:
+        try:
+            d["warnings"] = _json.loads(raw_warnings)
+        except (ValueError, TypeError):
+            d["warnings"] = []
+    else:
+        d["warnings"] = []
     return d
 
 

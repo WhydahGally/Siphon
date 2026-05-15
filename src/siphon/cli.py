@@ -41,6 +41,16 @@ def _parse_bool(value: str) -> bool:
     raise argparse.ArgumentTypeError(f"Expected true/false, got '{value}'.")
 
 
+def _warn_sb_unavailable() -> None:
+    """Print a warning if SponsorBlock API is unreachable."""
+    try:
+        resp = _requests.get(f"{DAEMON_URL}/health/sponsorblock", timeout=5)
+        if not resp.ok:
+            print("⚠ SponsorBlock API is unreachable. Sponsor segments will not be removed.", file=sys.stderr)
+    except Exception:
+        print("⚠ SponsorBlock API is unreachable. Sponsor segments will not be removed.", file=sys.stderr)
+
+
 def _print_table(rows: list, headers: list, col_widths: list) -> None:
     fmt = "  ".join(f"{{:<{w}}}" for w in col_widths)
     print(fmt.format(*headers))
@@ -144,6 +154,9 @@ def cmd_add(args: argparse.Namespace) -> int:
             return 1
         body["check_interval_secs"] = args.interval
 
+    if args.sponsorblock and args.download:
+        _warn_sb_unavailable()
+
     try:
         resp = _requests.post(f"{DAEMON_URL}/playlists", json=body, timeout=120)
     except _requests.exceptions.ConnectionError:
@@ -202,6 +215,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
         if match is None:
             logger.error("No playlist named '%s'. Run 'siphon list' to see registered playlists.", name_filter)
             return 1
+        if match.get("sponsorblock_enabled"):
+            _warn_sb_unavailable()
         _daemon_post(f"/playlists/{match['id']}/sync", expect_status=202)
         logger.info("Sync started for '%s'.", name_filter)
     else:
@@ -209,6 +224,8 @@ def cmd_sync(args: argparse.Namespace) -> int:
         if not playlists:
             logger.info("No playlists registered. Use 'siphon add <url>' to add one.")
             return 0
+        if any(p.get("sponsorblock_enabled") for p in playlists):
+            _warn_sb_unavailable()
         for p in playlists:
             _daemon_post(f"/playlists/{p['id']}/sync", expect_status=202)
             logger.info("Sync started for '%s'.", p["name"])
@@ -395,6 +412,11 @@ _KNOWN_KEYS = {
         "Global default for cookie use. When a cookie file is configured, use it by default. "
         "Accepted values: true, false. Default: true.",
     ),
+    "sb-require-for-sync": (
+        "sb_require_for_sync",
+        "When true, sync is skipped if the SponsorBlock API is unreachable. "
+        "Accepted values: true, false. Default: false.",
+    ),
 }
 
 _VALID_LOG_LEVELS = {"DEBUG", "INFO", "WARNING", "ERROR"}
@@ -410,6 +432,7 @@ _ALLOWED_VALUES: dict = {
     "theme": {"dark", "light"},
     "browser-logs": {"on", "off"},
     "sb-enabled": {"true", "false"},
+    "sb-require-for-sync": {"true", "false"},
     "cookies-enabled": {"true", "false"},
 }
 
