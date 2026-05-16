@@ -501,16 +501,16 @@ async function handleFactoryReset() {
         <div v-if="noisePatternsOpen" class="noise-disclosure-body">
           <span class="setting-desc" style="margin-bottom: 6px; display: block;">
             Each pattern matches content inside <code>( )</code> or <code>[ ]</code> at the end of a title.
-            When unset, built-in defaults are used.
+            Clear all patterns and save to disable noise stripping.
           </span>
           <textarea
             v-model="noisePatternsText"
             class="noise-textarea"
-            placeholder="One pattern per line, e.g.&#10;official video&#10;lyric video"
+            placeholder="One regex per line, e.g.&#10;[\(\[]\s*official\s*video\s*[\)\]]&#10;[\(\[]\s*lyric\s*video\s*[\)\]]"
             rows="6"
           />
           <span v-if="!noisePatternsStored" class="setting-desc noise-default-note">
-            No patterns saved — built-in defaults are currently active.
+            No patterns saved — noise stripping is disabled.
           </span>
           <div class="noise-actions">
             <button class="btn-primary-sm" title="Save" @click="saveNoisePatterns">
