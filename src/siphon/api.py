@@ -842,6 +842,10 @@ def api_create_job(body: JobCreate):
         if body.watched and _scheduler is not None:
             _scheduler.add_playlist(playlist_id)
 
+        # Persist SB disabled state on the playlist (e.g. "Download anyway" flow)
+        if not body.sponsorblock_enabled:
+            registry.set_playlist_sponsorblock(playlist_id, "")
+
         if body.register_only:
             return {
                 "job_id": None,
