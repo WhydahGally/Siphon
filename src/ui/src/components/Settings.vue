@@ -230,12 +230,14 @@ function onSbRequireForSyncToggle() {
 // ── Appearance ───────────────────────────────────────────────────────────────────
 function onThemeToggle() {
   isDark.value = !isDark.value
+  document.documentElement.classList.add('theme-transition')
   if (!isDark.value) {
     document.documentElement.dataset.theme = 'light'
   } else {
     delete document.documentElement.dataset.theme
   }
   saveSetting('theme', isDark.value ? 'dark' : 'light', true)
+  setTimeout(() => document.documentElement.classList.remove('theme-transition'), 350)
 }
 
 // ── About ─────────────────────────────────────────────────────────────────────────
