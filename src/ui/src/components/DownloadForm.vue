@@ -8,7 +8,7 @@ import SplitButton from './SplitButton.vue'
 
 const emit = defineEmits(['job-created'])
 const { showToast } = useToast()
-const { autoRename: globalAutoRename, sponsorBlockEnabled: globalSponsorBlock, cookiesEnabled: globalCookiesEnabled, cookieFileSet, loaded: settingsLoaded } = useSettings()
+const { autoRename: globalAutoRename, sponsorBlockEnabled: globalSponsorBlock, cookiesEnabled: globalCookiesEnabled, cookieFileSet, mbUserAgentMissing, loaded: settingsLoaded } = useSettings()
 
 const url = ref('')
 const format = ref('mp3')
@@ -60,8 +60,6 @@ function _removeIntervalListener() {
     _intervalClickOutside = null
   }
 }
-const mbUserAgentMissing = ref(false)
-
 const AUDIO_FORMATS = ['mp3', 'opus']
 const VIDEO_FORMATS = ['mp4', 'mkv', 'webm']
 const QUALITY_OPTIONS = ['best', '2160', '1080', '720', '480', '360']
@@ -80,13 +78,6 @@ const isPlaylist = computed(() =>
 )
 
 onMounted(async () => {
-  try {
-    const res = await fetch('/settings/mb-user-agent')
-    const data = await res.json()
-    mbUserAgentMissing.value = !data.value
-  } catch {
-    // daemon not reachable yet — don't crash
-  }
   try {
     const res = await fetch('/playlist-patterns')
     if (res.ok) {
