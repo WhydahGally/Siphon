@@ -116,12 +116,27 @@ class TestResolveSbCategoriesForJob:
         body = self._make_body(enabled=True, cats=None)
         assert _resolve_sb_categories_for_job(body) == ["sponsor"]
 
-    def test_enabled_global_disabled_returns_none(self, db):
+    def test_enabled_global_disabled_with_categories(self, db):
+        """Per-request SB enabled flag is authoritative — global off doesn't veto it."""
+        registry.set_setting("sponsorblock_enabled", "false")
+        registry.set_setting("sponsorblock_categories", '["sponsor", "selfpromo"]')
+        body = self._make_body(enabled=True, cats=None)
+        assert _resolve_sb_categories_for_job(body) == ["sponsor", "selfpromo"]
+
+    def test_enabled_global_disabled_no_categories(self, db):
+        """Per-request SB enabled but no categories anywhere — returns None."""
         registry.set_setting("sponsorblock_enabled", "false")
         body = self._make_body(enabled=True, cats=None)
         assert _resolve_sb_categories_for_job(body) is None
 
-    def test_enabled_no_global_returns_default(self, db):
+    def test_enabled_no_global_returns_none(self, db):
+        """No categories configured at all — SB effectively disabled."""
+        body = self._make_body(enabled=True, cats=None)
+        assert _resolve_sb_categories_for_job(body) is None
+
+    def test_enabled_with_seeded_categories(self, db):
+        """When categories are seeded (normal startup), they are used."""
+        registry.set_setting("sponsorblock_categories", '["music_offtopic"]')
         body = self._make_body(enabled=True, cats=None)
         assert _resolve_sb_categories_for_job(body) == ["music_offtopic"]
 

@@ -8,7 +8,7 @@ import SplitButton from './SplitButton.vue'
 
 const emit = defineEmits(['job-created'])
 const { showToast } = useToast()
-const { autoRename: globalAutoRename, sponsorBlockEnabled: globalSponsorBlock, cookiesEnabled: globalCookiesEnabled, cookieFileSet, mbUserAgentMissing, loaded: settingsLoaded } = useSettings()
+const { autoRename: globalAutoRename, sponsorBlockEnabled: globalSponsorBlock, sbCategoriesEmpty, cookiesEnabled: globalCookiesEnabled, cookieFileSet, mbUserAgentMissing, loaded: settingsLoaded } = useSettings()
 
 const url = ref('')
 const format = ref('mp3')
@@ -257,8 +257,8 @@ function handleSbDownloadAnyway() {
         </span>
         <span>Auto rename</span>
         <span
-          v-if="autoRename && mbUserAgentMissing"
           class="warn-icon"
+          :class="{ invisible: !(autoRename && mbUserAgentMissing) }"
           title="Configure mb-user-agent in Settings"
         >⚠</span>
       </label>
@@ -270,6 +270,11 @@ function handleSbDownloadAnyway() {
           <span class="slider" />
         </span>
         <span>SponsorBlock</span>
+        <span
+          class="warn-icon"
+          :class="{ invisible: !(sponsorBlock && sbCategoriesEmpty) }"
+          title="No SponsorBlock categories selected in Settings"
+        >⚠</span>
       </label>
 
       <!-- Cookies -->
@@ -279,6 +284,7 @@ function handleSbDownloadAnyway() {
           <span class="slider" />
         </span>
         <span>Cookies</span>
+        <span class="warn-icon invisible">⚠</span>
       </label>
 
       <!-- Auto sync (playlist only) — interval is inline -->
@@ -506,6 +512,9 @@ function handleSbDownloadAnyway() {
   color: var(--warning);
   font-size: 13px;
   cursor: default;
+}
+.warn-icon.invisible {
+  visibility: hidden;
 }
 
 .interval-edit-group {

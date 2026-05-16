@@ -13,7 +13,7 @@ const maxConcurrent = ref(5)
 const intervalSecs = ref(86400)
 const editingInterval = ref(false)
 const intervalInput = ref('')
-const { autoRename: autoRenameGlobal, browserLogs, sponsorBlockEnabled, cookiesEnabled, cookieFileSet, mbUserAgentMissing, loaded: settingsLoaded } = useSettings()
+const { autoRename: autoRenameGlobal, browserLogs, sponsorBlockEnabled, sbCategoriesEmpty, cookiesEnabled, cookieFileSet, mbUserAgentMissing, sbRequireForSync, loaded: settingsLoaded } = useSettings()
 const mbEmail = ref('')
 const isDark = ref(true)
 const logLevel = ref('INFO')
@@ -43,7 +43,7 @@ onMounted(async () => {
       if (s.sponsorblock_categories) {
         try { sbCategories.value = JSON.parse(s.sponsorblock_categories) } catch {}
       }
-      if (s.sb_require_for_sync === 'true') sbRequireForSync.value = true
+      sbRequireForSync.value = s.sb_require_for_sync === 'true'
     }
   } catch { /* daemon not reachable */ }
 
@@ -185,7 +185,6 @@ async function saveNoisePatterns() {
 
 // ── SponsorBlock ─────────────────────────────────────────────────────────────────
 const sbCatsOpen = ref(false)
-const sbRequireForSync = ref(false)
 
 const SB_CATEGORIES = [
   { key: 'sponsor',       label: 'Sponsor' },
@@ -221,6 +220,7 @@ function toggleSbCategory(key) {
     }
   }
   saveSetting('sb-cats', JSON.stringify(sbCategories.value), true)
+  sbCategoriesEmpty.value = sbCategories.value.length === 0
 }
 
 function onSbRequireForSyncToggle() {

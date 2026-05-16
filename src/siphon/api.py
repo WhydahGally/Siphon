@@ -272,6 +272,8 @@ async def _lifespan(app: FastAPI):
     registry.init_db(data_dir)
     if not registry.get_setting("title_noise_patterns"):
         registry.set_setting("title_noise_patterns", json.dumps(_DEFAULT_NOISE_PATTERNS))
+    if not registry.get_setting("sponsorblock_categories"):
+        registry.set_setting("sponsorblock_categories", json.dumps(list(registry._DEFAULT_SB_CATEGORIES)))
     _browser_logs_enabled = registry.get_setting("browser_logs") == "on"
     stored_log_level = registry.get_setting("log_level")
     if stored_log_level:
@@ -795,7 +797,10 @@ def api_playlist_patterns():
 def api_create_job(body: JobCreate):
     url = _normalise_url(body.url)
     output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
-    cookie_file = _get_cookie_file_path() if body.use_cookies else None
+    cookie_file = None
+    if body.use_cookies:
+        path = os.path.join(_resolve_data_dir(), "cookies.txt")
+        cookie_file = path if os.path.isfile(path) else None
 
     try:
         info = _fetch_playlist_info(url, cookie_file=cookie_file)
@@ -1128,6 +1133,8 @@ def _resolve_sb_categories_for_job(body) -> Optional[list]:
     """Resolve the effective SponsorBlock category list for a one-off job.
 
     Jobs have no DB row — resolve directly from the request body then global settings.
+    The body.sponsorblock_enabled flag is authoritative; the global enabled setting
+    only provides the UI default and does not veto a per-request decision.
     Returns None if SponsorBlock should not be applied.
     """
     import json as _json
@@ -1135,9 +1142,7 @@ def _resolve_sb_categories_for_job(body) -> Optional[list]:
         return None
     if body.sponsorblock_categories:
         return body.sponsorblock_categories
-    # Fall back to global settings
-    if registry.get_setting("sponsorblock_enabled") == "false":
-        return None
+    # User enabled SB — resolve which categories from global config
     cats_raw = registry.get_setting("sponsorblock_categories")
     if cats_raw:
         try:
@@ -1145,7 +1150,8 @@ def _resolve_sb_categories_for_job(body) -> Optional[list]:
             return cats if cats else None
         except Exception:
             pass
-    return list(registry._DEFAULT_SB_CATEGORIES)
+    # No categories configured — return None (SB effectively disabled)
+    return None
 
 
 def _apply_sb_patch(playlist_id: str, body) -> None:
