@@ -105,7 +105,7 @@ onMounted(async () => {
 
 async function handleAction(action) {
   if (!url.value.trim()) {
-    showToast('Please enter a URL.')
+    showToast('Enter a valid URL.')
     return
   }
   loading.value = true
