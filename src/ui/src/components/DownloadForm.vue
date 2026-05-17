@@ -512,9 +512,10 @@ function handleSbDownloadAnyway() {
   color: var(--warning);
   font-size: 13px;
   cursor: default;
+  margin-right: 5px;
 }
 .warn-icon.invisible {
-  visibility: hidden;
+  display: none;
 }
 
 .interval-edit-group {
