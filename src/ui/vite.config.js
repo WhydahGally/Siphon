@@ -6,6 +6,7 @@ export default defineConfig({
   plugins: [vue()],
   server: {
     proxy: {
+      '/playlist-patterns': 'http://localhost:8000',
       '/playlists': 'http://localhost:8000',
       '/jobs': 'http://localhost:8000',
       '/settings': 'http://localhost:8000',

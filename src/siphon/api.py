@@ -142,8 +142,8 @@ def _compute_playlist_patterns() -> dict:
         for param in re.findall(r'[?&]([a-z_]{2,15})=', valid_url):
             query_params.add(param)
     _PLAYLIST_PATTERNS = {
-        "path_segments": sorted(s for s in path_segments if any(k in s for k in _PLAYLIST_PATH_KW)),
-        "query_params": sorted(q for q in query_params if any(k in q for k in _PLAYLIST_PARAM_KW)),
+        "path_segments": sorted(set(s for s in path_segments if any(k in s for k in _PLAYLIST_PATH_KW)) | _PLAYLIST_PATH_KW),
+        "query_params": sorted(set(q for q in query_params if any(k in q for k in _PLAYLIST_PARAM_KW)) | _PLAYLIST_PARAM_KW),
     }
     return _PLAYLIST_PATTERNS
 
