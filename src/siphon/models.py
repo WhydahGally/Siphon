@@ -119,6 +119,7 @@ class JobCreate(BaseModel):
     sponsorblock_enabled: bool = False
     sponsorblock_categories: Optional[List[str]] = None
     use_cookies: bool = False
+    register_only: bool = False
 
 
 class RenameRequest(BaseModel):

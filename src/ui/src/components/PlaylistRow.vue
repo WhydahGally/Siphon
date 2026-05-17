@@ -1,7 +1,9 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import ConfirmButton from './ConfirmButton.vue'
+import ModalDialog from './ModalDialog.vue'
 import PlaylistItemsPanel from './PlaylistItemsPanel.vue'
+import PlaylistWarningsPanel from './PlaylistWarningsPanel.vue'
 import { secsToHuman, ddhhmmssToSecs, secsToDdhhmmss } from '../utils/interval.js'
 import { useSettings } from '../composables/useSettings.js'
 
@@ -22,6 +24,29 @@ const useCookies = ref(props.playlist.cookies_enabled ?? null)
 const watched = ref(props.playlist.watched)
 const syncing = ref(props.playlist.is_syncing)
 const syncInfo = computed(() => props.playlist.sync_info ?? null)
+const warnings = computed(() => props.playlist.warnings || [])
+const hasWarnings = computed(() => warnings.value.length > 0)
+const showWarnings = ref(false)
+
+function toggleWarnings() {
+  if (showWarnings.value) {
+    showWarnings.value = false
+  } else {
+    // Close items panel if open
+    if (props.expanded) emit('collapse', props.playlist.id)
+    showWarnings.value = true
+  }
+}
+
+function handleWarningDismiss(videoId) {
+  const idx = props.playlist.warnings.findIndex(w => w.video_id === videoId)
+  if (idx !== -1) props.playlist.warnings.splice(idx, 1)
+}
+
+function handleWarningsClearAll() {
+  props.playlist.warnings.splice(0, props.playlist.warnings.length)
+  showWarnings.value = false
+}
 
 // Interval inline edit
 const editingInterval = ref(false)
@@ -79,14 +104,40 @@ function cancelIntervalEdit() {
 }
 
 // Sync now
+const showSbModal = ref(false)
+
 async function triggerSync() {
   if (syncing.value) return
-  syncing.value = true
-  try {
-    await fetch(`/playlists/${props.playlist.id}/sync`, { method: 'POST' })
-  } catch {
-    syncing.value = false
+  // SB health gate: if SponsorBlock is enabled, check health first
+  if (sponsorBlock.value) {
+    try {
+      const res = await fetch('/health/sponsorblock')
+      if (!res.ok) {
+        showSbModal.value = true
+        return
+      }
+    } catch {
+      showSbModal.value = true
+      return
+    }
   }
+  doSync()
+}
+
+function doSync() {
+  if (syncing.value) return
+  syncing.value = true
+  fetch(`/playlists/${props.playlist.id}/sync`, { method: 'POST' })
+    .catch(() => { syncing.value = false })
+}
+
+function handleSbSyncAnyway() {
+  showSbModal.value = false
+  doSync()
+}
+
+function handleSbCancel() {
+  showSbModal.value = false
 }
 
 // Clear syncing state from parent (called when sync_done received)
@@ -166,6 +217,8 @@ function toggleExpand() {
   if (props.expanded) {
     emit('collapse', props.playlist.id)
   } else {
+    // Close warnings panel if open
+    showWarnings.value = false
     emit('expand', props.playlist.id)
   }
 }
@@ -232,6 +285,7 @@ onMounted(() => {
           </svg>
         </button>
         <span class="playlist-name mobile-name">{{ playlist.name }}</span>
+        <span v-if="hasWarnings" class="warning-icon" @click.stop="toggleWarnings">⚠</span>
         <div class="mobile-header-actions">
           <div class="mobile-delete">
             <ConfirmButton label="Delete" @confirm="handleDelete">
@@ -327,6 +381,7 @@ onMounted(() => {
             :class="{ marquee: shouldMarquee }"
             :style="shouldMarquee ? { '--marquee-duration': marqueeDuration, '--marquee-shift': marqueeShift } : {}"
           >{{ playlist.name }}</span>
+          <span v-if="hasWarnings" class="warning-icon" @click.stop="toggleWarnings">⚠</span>
         </div>
         <button class="btn-sync" :style="{ visibility: syncing ? 'hidden' : 'visible' }" @click="triggerSync">Sync now</button>
       </div>
@@ -434,7 +489,27 @@ onMounted(() => {
       :loading="itemsLoading"
       :playlist-id="playlist.id"
     />
+
+    <!-- Warnings panel — replaces items panel when ⚠ is clicked -->
+    <PlaylistWarningsPanel
+      v-if="showWarnings"
+      :warnings="warnings"
+      :playlist-id="playlist.id"
+      @dismiss="handleWarningDismiss"
+      @clear-all="handleWarningsClearAll"
+    />
   </div>
+
+  <ModalDialog :show="showSbModal" @close="handleSbCancel">
+    <template #header>SponsorBlock Unavailable</template>
+    <template #body>
+      <p>SponsorBlock API is currently unreachable.<br> Sponsor segments will not be removed from this sync.</p>
+    </template>
+    <template #actions>
+      <button class="sb-modal-btn sb-modal-btn--secondary" @click="handleSbCancel">Cancel</button>
+      <button class="sb-modal-btn sb-modal-btn--primary" @click="handleSbSyncAnyway">Sync anyway</button>
+    </template>
+  </ModalDialog>
 </template>
 
 <style scoped>
@@ -468,7 +543,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  cursor: pointer;
+  cursor: default;
   transition: background 0.2s;
 }
 
@@ -545,6 +620,18 @@ onMounted(() => {
   color: var(--text);
   white-space: nowrap;
   display: inline-block;
+}
+
+.warning-icon {
+  color: #e6a700;
+  font-size: 14px;
+  margin-left: 6px;
+  cursor: default;
+  flex-shrink: 0;
+}
+
+.warning-icon:hover {
+  filter: brightness(1.3);
 }
 
 .playlist-name.marquee {
@@ -879,5 +966,33 @@ onMounted(() => {
   }
 
   .interval-input { width: 90px; }
+}
+
+/* ── SB modal buttons ──────────────────────────────────────── */
+.sb-modal-btn {
+  border-radius: var(--radius-sm);
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.sb-modal-btn--secondary {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.sb-modal-btn--secondary:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+.sb-modal-btn--primary {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
+}
+.sb-modal-btn--primary:hover {
+  background: var(--accent-hover, var(--accent));
+  border-color: var(--accent-hover, var(--accent));
 }
 </style>

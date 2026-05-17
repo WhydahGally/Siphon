@@ -143,6 +143,24 @@ class PlaylistScheduler:
             logger.warning("PlaylistScheduler._fire: playlist %s not found in DB, skipping.", playlist_id)
             return
 
+        # SB health gate: if sb-require-for-sync is enabled, check SB health first.
+        sb_require = registry.get_setting("sb_require_for_sync")
+        if sb_require == "true":
+            from siphon.downloader import check_sb_health
+            health = check_sb_health()
+            if health["status"] == "unhealthy":
+                logger.warning(
+                    "PlaylistScheduler: SB unhealthy for '%s', skipping sync (reason=%s).",
+                    row["name"], health.get("reason"),
+                )
+                registry.append_playlist_warning(
+                    playlist_id,
+                    "sponsorblock",
+                    "Sync skipped: SponsorBlock unavailable",
+                )
+                self._rearm(playlist_id)
+                return
+
         # Track active thread so stop() can join it.
         current = threading.current_thread()
         with self._lock:
@@ -153,6 +171,11 @@ class PlaylistScheduler:
             self._sync_fn(row)
         except Exception as exc:
             logger.error("PlaylistScheduler: sync failed for '%s': %s", row["name"], exc)
+            registry.append_playlist_warning(
+                playlist_id,
+                "sync_error",
+                f"Sync failed: {exc}",
+            )
         finally:
             with self._lock:
                 self._active_threads.pop(playlist_id, None)

@@ -3,10 +3,12 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useToast } from '../composables/useToast.js'
 import { ddhhmmssToSecs, secsToDdhhmmss, secsToHuman } from '../utils/interval.js'
 import { useSettings } from '../composables/useSettings.js'
+import ModalDialog from './ModalDialog.vue'
+import SplitButton from './SplitButton.vue'
 
 const emit = defineEmits(['job-created'])
 const { showToast } = useToast()
-const { autoRename: globalAutoRename, sponsorBlockEnabled: globalSponsorBlock, cookiesEnabled: globalCookiesEnabled, cookieFileSet, loaded: settingsLoaded } = useSettings()
+const { autoRename: globalAutoRename, sponsorBlockEnabled: globalSponsorBlock, sbCategoriesEmpty, cookiesEnabled: globalCookiesEnabled, cookieFileSet, mbUserAgentMissing, loaded: settingsLoaded } = useSettings()
 
 const url = ref('')
 const format = ref('mp3')
@@ -24,6 +26,8 @@ const intervalInput = ref('')
 const intervalEditRef = ref(null)
 const intervalDisplay = computed(() => secsToHuman(interval.value))
 const loading = ref(false)
+const showSbModal = ref(false)
+const pendingBody = ref(null)
 
 let _intervalClickOutside = null
 
@@ -56,8 +60,6 @@ function _removeIntervalListener() {
     _intervalClickOutside = null
   }
 }
-const mbUserAgentMissing = ref(false)
-
 const AUDIO_FORMATS = ['mp3', 'opus']
 const VIDEO_FORMATS = ['mp4', 'mkv', 'webm']
 const QUALITY_OPTIONS = ['best', '2160', '1080', '720', '480', '360']
@@ -77,13 +79,6 @@ const isPlaylist = computed(() =>
 
 onMounted(async () => {
   try {
-    const res = await fetch('/settings/mb-user-agent')
-    const data = await res.json()
-    mbUserAgentMissing.value = !data.value
-  } catch {
-    // daemon not reachable yet — don't crash
-  }
-  try {
     const res = await fetch('/playlist-patterns')
     if (res.ok) {
       const { path_segments, query_params } = await res.json()
@@ -99,9 +94,9 @@ onMounted(async () => {
   }
 })
 
-async function handleDownload() {
+async function handleAction(action) {
   if (!url.value.trim()) {
-    showToast('Please enter a URL.')
+    showToast('Enter a valid URL.')
     return
   }
   loading.value = true
@@ -115,10 +110,36 @@ async function handleDownload() {
     sponsorblock_enabled: sponsorBlock.value,
     use_cookies: useCookies.value,
   }
+  if (action === 'Register') {
+    body.register_only = true
+  }
   if (isPlaylist.value && autoSync.value && interval.value) {
     body.check_interval_secs = Number(interval.value)
   }
 
+  // SB health check: if SponsorBlock is enabled and actually downloading
+  if (body.sponsorblock_enabled && !body.register_only) {
+    try {
+      const sbRes = await fetch('/health/sponsorblock')
+      if (!sbRes.ok) {
+        pendingBody.value = body
+        showSbModal.value = true
+        loading.value = false
+        return
+      }
+    } catch {
+      pendingBody.value = body
+      showSbModal.value = true
+      loading.value = false
+      return
+    }
+  }
+
+  await submitDownload(body)
+}
+
+async function submitDownload(body) {
+  loading.value = true
   try {
     const res = await fetch('/jobs', {
       method: 'POST',
@@ -131,10 +152,14 @@ async function handleDownload() {
       return
     }
     const data = await res.json()
-    if (data.existing_playlist) {
+    if (data.registered) {
+      showToast('Playlist registered.', 'success')
+    } else if (data.existing_playlist) {
       showToast('Playlist already in library — syncing new videos.', 'info')
     }
-    emit('job-created', data.job_id)
+    if (data.job_id) {
+      emit('job-created', data.job_id)
+    }
     url.value = ''
   } catch (e) {
     showToast('Could not reach the daemon. Is siphon running?')
@@ -142,6 +167,24 @@ async function handleDownload() {
     loading.value = false
   }
 }
+
+function handleSbRegisterOnly() {
+  showSbModal.value = false
+  if (!pendingBody.value) return
+  const body = { ...pendingBody.value, register_only: true }
+  pendingBody.value = null
+  submitDownload(body)
+}
+
+function handleSbDownloadAnyway() {
+  showSbModal.value = false
+  if (!pendingBody.value) return
+  const body = { ...pendingBody.value, sponsorblock_enabled: false }
+  pendingBody.value = null
+  submitDownload(body)
+}
+
+
 </script>
 
 <template>
@@ -155,12 +198,19 @@ async function handleDownload() {
         class="url-input"
         placeholder="Playlist or video URL"
         :disabled="loading"
-        @keydown.enter="handleDownload"
+        @keydown.enter="handleAction('Download')"
       />
-      <button class="btn-primary" :disabled="loading" @click="handleDownload">
-        <span v-if="loading" class="spinner-sm" />
-        <span v-else>Download</span>
-      </button>
+      <SplitButton
+        :disabled="loading"
+        :options="['Download', 'Register']"
+        :tooltips="['Register and begin downloading', 'Add to library and download later']"
+        @click="handleAction"
+      >
+        <template #default="{ label }">
+          <span v-if="loading" class="spinner-sm" />
+          <span v-else>{{ label }}</span>
+        </template>
+      </SplitButton>
     </div>
 
     <!-- Format + Quality row -->
@@ -207,9 +257,9 @@ async function handleDownload() {
         </span>
         <span>Auto rename</span>
         <span
-          v-if="autoRename && mbUserAgentMissing"
           class="warn-icon"
-          title="Configure mb-user-agent in settings."
+          :class="{ invisible: !(autoRename && mbUserAgentMissing) }"
+          title="Configure mb-user-agent in Settings"
         >⚠</span>
       </label>
 
@@ -220,6 +270,11 @@ async function handleDownload() {
           <span class="slider" />
         </span>
         <span>SponsorBlock</span>
+        <span
+          class="warn-icon"
+          :class="{ invisible: !(sponsorBlock && sbCategoriesEmpty) }"
+          title="No SponsorBlock categories selected in Settings"
+        >⚠</span>
       </label>
 
       <!-- Cookies -->
@@ -229,6 +284,7 @@ async function handleDownload() {
           <span class="slider" />
         </span>
         <span>Cookies</span>
+        <span class="warn-icon invisible">⚠</span>
       </label>
 
       <!-- Auto sync (playlist only) — interval is inline -->
@@ -263,6 +319,18 @@ async function handleDownload() {
     </div>
 
   </section>
+
+  <ModalDialog :show="showSbModal" @close="showSbModal = false; pendingBody = null">
+    <template #header>SponsorBlock Unavailable</template>
+    <template #body>
+      <p>SponsorBlock API is currently unreachable.</p>
+      <p>Register to download at next sync, or proceed without SponsorBlock.</p>
+    </template>
+    <template #actions>
+      <button class="sb-modal-btn sb-modal-btn--secondary" @click="handleSbRegisterOnly">Register only</button>
+      <button class="sb-modal-btn sb-modal-btn--primary" @click="handleSbDownloadAnyway">Download anyway</button>
+    </template>
+  </ModalDialog>
 </template>
 
 <style scoped>
@@ -443,7 +511,10 @@ async function handleDownload() {
 .warn-icon {
   color: var(--warning);
   font-size: 13px;
-  cursor: help;
+  cursor: default;
+}
+.warn-icon.invisible {
+  visibility: hidden;
 }
 
 .interval-edit-group {
@@ -532,5 +603,33 @@ async function handleDownload() {
   .interval-input {
     width: 110px;
   }
+}
+
+/* SB unavailable modal buttons */
+.sb-modal-btn {
+  border-radius: var(--radius-sm);
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+.sb-modal-btn--secondary {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+.sb-modal-btn--secondary:hover {
+  border-color: var(--text-muted);
+  color: var(--text);
+}
+.sb-modal-btn--primary {
+  background: var(--accent);
+  border: 1px solid var(--accent);
+  color: #fff;
+}
+.sb-modal-btn--primary:hover {
+  background: var(--accent-hover, var(--accent));
+  border-color: var(--accent-hover, var(--accent));
 }
 </style>

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, nextTick } from 'vue'
 import ConfirmButton from './ConfirmButton.vue'
+import ModalDialog from './ModalDialog.vue'
 import { useToast } from '../composables/useToast.js'
 import { ddhhmmssToSecs, secsToDdhhmmss, secsToHuman } from '../utils/interval.js'
 import { useSettings } from '../composables/useSettings.js'
@@ -12,7 +13,7 @@ const maxConcurrent = ref(5)
 const intervalSecs = ref(86400)
 const editingInterval = ref(false)
 const intervalInput = ref('')
-const { autoRename: autoRenameGlobal, browserLogs, sponsorBlockEnabled, cookiesEnabled, cookieFileSet, loaded: settingsLoaded } = useSettings()
+const { autoRename: autoRenameGlobal, browserLogs, sponsorBlockEnabled, sbCategoriesEmpty, cookiesEnabled, cookieFileSet, mbUserAgentMissing, sbRequireForSync, loaded: settingsLoaded } = useSettings()
 const mbEmail = ref('')
 const isDark = ref(true)
 const logLevel = ref('INFO')
@@ -42,6 +43,7 @@ onMounted(async () => {
       if (s.sponsorblock_categories) {
         try { sbCategories.value = JSON.parse(s.sponsorblock_categories) } catch {}
       }
+      sbRequireForSync.value = s.sb_require_for_sync === 'true'
     }
   } catch { /* daemon not reachable */ }
 
@@ -126,6 +128,7 @@ function saveMbUserAgent() {
   const ver = version.value.siphon && version.value.siphon !== '—' ? version.value.siphon : '1.0'
   const ua = mbEmail.value.trim() ? `Siphon/${ver} (${mbEmail.value.trim()})` : ''
   saveSetting('mb-user-agent', ua)
+  mbUserAgentMissing.value = !ua
 }
 
 // ── Noise patterns ───────────────────────────────────────────────────────────────
@@ -217,26 +220,43 @@ function toggleSbCategory(key) {
     }
   }
   saveSetting('sb-cats', JSON.stringify(sbCategories.value), true)
+  sbCategoriesEmpty.value = sbCategories.value.length === 0
+}
+
+function onSbRequireForSyncToggle() {
+  sbRequireForSync.value = !sbRequireForSync.value
+  saveSetting('sb-require-for-sync', sbRequireForSync.value ? 'true' : 'false', true)
 }
 
 // ── Appearance ───────────────────────────────────────────────────────────────────
 function onThemeToggle() {
   isDark.value = !isDark.value
+  document.documentElement.classList.add('theme-transition')
   if (!isDark.value) {
     document.documentElement.dataset.theme = 'light'
   } else {
     delete document.documentElement.dataset.theme
   }
   saveSetting('theme', isDark.value ? 'dark' : 'light', true)
+  setTimeout(() => document.documentElement.classList.remove('theme-transition'), 350)
 }
 
 // ── About ─────────────────────────────────────────────────────────────────────────
 function onLogLevelChange() { saveSetting('log-level', logLevel.value, true) }
 
 // ── Debugging ─────────────────────────────────────────────────────────────────────
-function onBrowserLogsToggle() {
-  browserLogs.value = !browserLogs.value
-  saveSetting('browser-logs', browserLogs.value ? 'on' : 'off', true)
+async function onBrowserLogsToggle() {
+  const newVal = !browserLogs.value
+  const res = await fetch('/settings/browser-logs', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: newVal ? 'on' : 'off' }),
+  }).catch(() => null)
+  if (res && res.ok) {
+    browserLogs.value = newVal
+  } else {
+    showToast('Failed to save.', 'error')
+  }
 }
 
 // ── Danger zone ───────────────────────────────────────────────────────────────
@@ -484,16 +504,16 @@ async function handleFactoryReset() {
         <div v-if="noisePatternsOpen" class="noise-disclosure-body">
           <span class="setting-desc" style="margin-bottom: 6px; display: block;">
             Each pattern matches content inside <code>( )</code> or <code>[ ]</code> at the end of a title.
-            When unset, built-in defaults are used.
+            Clear all patterns and save to disable noise stripping.
           </span>
           <textarea
             v-model="noisePatternsText"
             class="noise-textarea"
-            placeholder="One pattern per line, e.g.&#10;official video&#10;lyric video"
+            placeholder="One regex per line, e.g.&#10;[\(\[]\s*official\s*video\s*[\)\]]&#10;[\(\[]\s*lyric\s*video\s*[\)\]]"
             rows="6"
           />
           <span v-if="!noisePatternsStored" class="setting-desc noise-default-note">
-            No patterns saved — built-in defaults are currently active.
+            No patterns saved — noise stripping is disabled.
           </span>
           <div class="noise-actions">
             <button class="btn-primary-sm" title="Save" @click="saveNoisePatterns">
@@ -524,6 +544,19 @@ async function handleFactoryReset() {
         <div class="setting-control-col">
           <label class="toggle-switch">
             <input type="checkbox" :checked="sponsorBlockEnabled" @change="onSponsorBlockToggle" />
+            <span class="slider" />
+          </label>
+        </div>
+      </div>
+
+      <div class="setting-row" :style="!sponsorBlockEnabled ? 'pointer-events: none; opacity: 0.4;' : ''">
+        <div class="setting-label-col">
+          <span class="setting-label">Require SponsorBlock for sync</span>
+          <span class="setting-desc">Skip scheduled jobs when SponsorBlock API is unreachable.</span>
+        </div>
+        <div class="setting-control-col">
+          <label class="toggle-switch">
+            <input type="checkbox" :checked="sbRequireForSync" :disabled="!sponsorBlockEnabled" @change="onSbRequireForSyncToggle" />
             <span class="slider" />
           </label>
         </div>
@@ -670,20 +703,18 @@ async function handleFactoryReset() {
   </div>
 
   <!-- ── Cookie upload warning modal ──────────────────────────────────────── -->
-  <Teleport to="body">
-    <div v-if="showCookieWarning" class="cookie-modal-overlay" @click.self="showCookieWarning = false">
-      <div class="cookie-modal">
-        <p class="cookie-modal-text">
-          Uploading via the web UI sends your cookie file over HTTP (unencrypted). For a network-safe alternative, drop the file directly into your app data volume — see
-          <a href="https://github.com/WhydahGally/Siphon#cookie-file-security" target="_blank" rel="noopener noreferrer" class="cookie-modal-link">Cookie File Security</a>.
-        </p>
-        <div class="cookie-modal-actions">
-          <button class="cookie-modal-cancel" @click="showCookieWarning = false">Cancel</button>
-          <button class="cookie-modal-confirm" @click="confirmCookieUpload">Proceed</button>
-        </div>
-      </div>
-    </div>
-  </Teleport>
+  <ModalDialog :show="showCookieWarning" @close="showCookieWarning = false">
+    <template #body>
+      <p class="cookie-modal-text">
+        Uploading via the web UI sends your cookie file over HTTP (unencrypted). For a network-safe alternative, drop the file directly into your app data volume — see
+        <a href="https://github.com/WhydahGally/Siphon#cookie-file-security" target="_blank" rel="noopener noreferrer" class="cookie-modal-link">Cookie File Security</a>.
+      </p>
+    </template>
+    <template #actions>
+      <button class="cookie-modal-cancel" @click="showCookieWarning = false">Cancel</button>
+      <button class="cookie-modal-confirm" @click="confirmCookieUpload">Proceed</button>
+    </template>
+  </ModalDialog>
 </template>
 
 <style scoped>
@@ -1151,27 +1182,6 @@ code {
 .danger-row:last-child { border-bottom: none; }
 
 /* ── Cookie upload warning modal ─────────────────────────────────────────── */
-.cookie-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.55);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.cookie-modal {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 24px;
-  max-width: 520px;
-  width: 90%;
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-}
 
 .cookie-modal-text {
   font-size: 14px;
@@ -1183,12 +1193,6 @@ code {
 .cookie-modal-link {
   color: var(--accent);
   text-decoration: underline;
-}
-
-.cookie-modal-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 10px;
 }
 
 .cookie-modal-cancel {
