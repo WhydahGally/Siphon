@@ -114,6 +114,16 @@ def init_db(data_dir: str) -> None:
         conn.commit()
     except Exception:
         pass  # Column already exists
+    try:
+        conn.execute("ALTER TABLE playlists ADD COLUMN warnings TEXT")
+        conn.commit()
+    except Exception:
+        pass  # Column already exists
+    try:
+        conn.execute("ALTER TABLE items ADD COLUMN sb_outcome TEXT")
+        conn.commit()
+    except Exception:
+        pass  # Column already exists
     conn.commit()
     # Store as the calling thread's connection.
     _local.conn = conn
@@ -420,6 +430,127 @@ def insert_item(record: ItemRecord, playlist_id: str) -> None:
         conn.close()
 
 
+def update_item_sb_outcome(video_id: str, playlist_id: str, sb_outcome: str) -> None:
+    """Update the sb_outcome column for a specific item."""
+    conn = _thread_conn()
+    try:
+        conn.execute(
+            "UPDATE items SET sb_outcome = ? WHERE video_id = ? AND playlist_id = ?",
+            (sb_outcome, video_id, playlist_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def aggregate_sb_warnings(playlist_id: str) -> None:
+    """
+    After a sync completes, count items with sb_outcome='failed' and update
+    the playlist's warnings column accordingly.
+    """
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT COUNT(*) FROM items WHERE playlist_id = ? AND sb_outcome = 'failed'",
+        (playlist_id,),
+    ).fetchone()
+    fail_count = row[0] if row else 0
+
+    # Read current warnings
+    prow = conn.execute(
+        "SELECT warnings FROM playlists WHERE id = ?", (playlist_id,)
+    ).fetchone()
+    warnings_json = prow["warnings"] if prow and prow["warnings"] else "[]"
+    try:
+        warnings = json.loads(warnings_json)
+    except (json.JSONDecodeError, TypeError):
+        warnings = []
+
+    # Remove existing sponsorblock warnings
+    warnings = [w for w in warnings if w.get("type") != "sponsorblock"]
+
+    # Add new warning if there are failures
+    if fail_count > 0:
+        warnings.append({
+            "type": "sponsorblock",
+            "message": f"{fail_count} items failed SponsorBlock processing",
+            "timestamp": _now(),
+        })
+
+    conn.execute(
+        "UPDATE playlists SET warnings = ? WHERE id = ?",
+        (json.dumps(warnings) if warnings else None, playlist_id),
+    )
+    conn.commit()
+
+
+def append_playlist_warning(playlist_id: str, warning_type: str, message: str, video_id: str | None = None) -> None:
+    """Append or upsert a warning entry in the playlist's warnings JSON array.
+
+    When *video_id* is provided the dedup key is ``(type, video_id)`` — an
+    existing entry with the same key gets its message & timestamp replaced.
+    Otherwise the dedup key is ``(type, message)`` (exact match).
+    """
+    conn = _get_conn()
+    prow = conn.execute(
+        "SELECT warnings FROM playlists WHERE id = ?", (playlist_id,)
+    ).fetchone()
+    warnings_json = prow["warnings"] if prow and prow["warnings"] else "[]"
+    try:
+        warnings = json.loads(warnings_json)
+    except (json.JSONDecodeError, TypeError):
+        warnings = []
+
+    new_entry = {
+        "type": warning_type,
+        "message": message,
+        "timestamp": _now(),
+    }
+    if video_id is not None:
+        new_entry["video_id"] = video_id
+
+    # Dedup: replace existing entry with same key
+    if video_id is not None:
+        warnings = [w for w in warnings if not (w.get("type") == warning_type and w.get("video_id") == video_id)]
+    else:
+        warnings = [w for w in warnings if not (w.get("type") == warning_type and w.get("message") == message)]
+
+    warnings.append(new_entry)
+    conn.execute(
+        "UPDATE playlists SET warnings = ? WHERE id = ?",
+        (json.dumps(warnings), playlist_id),
+    )
+    conn.commit()
+
+
+def clear_playlist_warnings(playlist_id: str) -> None:
+    """Remove all warnings for a playlist."""
+    conn = _get_conn()
+    conn.execute(
+        "UPDATE playlists SET warnings = NULL WHERE id = ?",
+        (playlist_id,),
+    )
+    conn.commit()
+
+
+def clear_playlist_warning(playlist_id: str, video_id: str) -> None:
+    """Remove a single warning by video_id from a playlist's warnings."""
+    conn = _get_conn()
+    prow = conn.execute(
+        "SELECT warnings FROM playlists WHERE id = ?", (playlist_id,)
+    ).fetchone()
+    warnings_json = prow["warnings"] if prow and prow["warnings"] else "[]"
+    try:
+        warnings = json.loads(warnings_json)
+    except (json.JSONDecodeError, TypeError):
+        warnings = []
+    warnings = [w for w in warnings if w.get("video_id") != video_id]
+    conn.execute(
+        "UPDATE playlists SET warnings = ? WHERE id = ?",
+        (json.dumps(warnings) if warnings else None, playlist_id),
+    )
+    conn.commit()
+
+
 def count_items(playlist_id: str) -> int:
     """Return the number of items recorded for a playlist."""
     conn = _get_conn()
@@ -617,6 +748,16 @@ def get_failed_attempt_count(video_id: str, playlist_id: str) -> int:
         (video_id, playlist_id),
     ).fetchone()
     return row[0] if row else 0
+
+
+def get_failed_download(video_id: str, playlist_id: str) -> dict | None:
+    """Return the failed_downloads row as a dict, or None."""
+    conn = _get_conn()
+    row = conn.execute(
+        "SELECT * FROM failed_downloads WHERE video_id = ? AND playlist_id = ?",
+        (video_id, playlist_id),
+    ).fetchone()
+    return dict(row) if row else None
 
 
 # ---------------------------------------------------------------------------

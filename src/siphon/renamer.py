@@ -51,23 +51,26 @@ _VISUAL_EQUIVALENT_MAP: dict[str, str] = {
 # Separators used only for the INFO-level diagnostic log.
 _TITLE_SEPARATORS = [' ⧸⧸ ', ' // ', ' – ', ' — ', ' - ']
 
-# Default inner regex patterns for strip_noise().
-# These match the content inside ( ) or [ ] at the end of a title.
+# Default regex patterns for strip_noise().
+# Each pattern is self-contained and matches the full bracketed suffix.
 _DEFAULT_NOISE_PATTERNS = [
-    r'official\s*music\s*video',
-    r'official\s*video',
-    r'official\s*audio',
-    r'official\s*lyric\s*video',
-    r'lyric\s*video',
-    r'lyrics?',
-    r'audio(?:\s*only)?',
-    r'visuali[sz]er',
-    r'visual',
-    r'hd',
-    r'4k',
-    r'1080p',
-    r'official',
-    r'\d{4}\s*remaster(?:ed)?',
+    r'[\(\[]\s*official\s*music\s*video\s*[\)\]]',
+    r'[\(\[]\s*official\s*video\s*[\)\]]',
+    r'[\(\[]\s*official\s*audio\s*[\)\]]',
+    r'[\(\[]\s*official\s*lyric\s*video\s*[\)\]]',
+    r'[\(\[]\s*lyric\s*video\s*[\)\]]',
+    r'[\(\[]\s*lyrics?\s*[\)\]]',
+    r'[\(\[]\s*audio(?:\s*only)?\s*[\)\]]',
+    r'[\(\[]\s*visuali[sz]er\s*[\)\]]',
+    r'[\(\[]\s*visual\s*[\)\]]',
+    r'[\(\[]\s*hd\s*[\)\]]',
+    r'[\(\[]\s*4k\s*[\)\]]',
+    r'[\(\[]\s*1080p\s*[\)\]]',
+    r'[\(\[]\s*official\s*[\)\]]',
+    r'[\(\[]\s*\d{4}\s*remaster(?:ed)?\s*[\)\]]',
+    r'[\(\[]\s*music\s*video\s*[\)\]]',
+    r'[\(\[]\s*hq\s*[\)\]]',
+    r'[\(\[]\s*high\s*quality\s*[\)\]]',
 ]
 
 
@@ -222,7 +225,7 @@ def strip_noise(title: str, patterns: Optional[list] = None) -> str:
     """
     Strip common YouTube title suffixes such as (Official Video), [Lyric Video], etc.
 
-    Patterns are inner regex strings matched inside ( ) or [ ] at the end of the title.
+    Each pattern is a complete regex that matches the bracketed suffix.
     - patterns=None  → use built-in defaults (_DEFAULT_NOISE_PATTERNS)
     - patterns=[]    → no stripping (noise filtering disabled)
     Applied iteratively until no further matches are found.
@@ -230,9 +233,9 @@ def strip_noise(title: str, patterns: Optional[list] = None) -> str:
     active = _DEFAULT_NOISE_PATTERNS if patterns is None else patterns
     if not active:
         return title
-    inner = "|".join(active)
+    combined = "|".join(active)
     noise_re = re.compile(
-        r"\s*[\(\[]\s*(?:" + inner + r")\s*[\)\]]\s*$",
+        r"\s*(?:" + combined + r")\s*$",
         re.IGNORECASE,
     )
     original = title

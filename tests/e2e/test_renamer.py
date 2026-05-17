@@ -25,13 +25,19 @@ from tests.e2e.conftest import require_env, poll_job_terminal, _DOWNLOADS_DIR
 _VISUAL_EQUIVALENTS = {"\u29F8", "\u29F9", "\uA789", "\uFF0A", "\uFF1F", "\uFF02", "\uFF1C", "\uFF1E", "\uFF5C"}
 _UNSAFE_ASCII = set('/\\:*?"<>|')
 
-# Default noise pattern substrings to check (lower-case)
+# Default noise pattern substrings to check (lower-case).
+# The renamer only strips these when they appear inside brackets.
 _NOISE_SUBSTRINGS = [
-    "official music video",
-    "official video",
-    "official audio",
-    "lyric video",
-    "lyrics video",
+    "(official music video)",
+    "[official music video]",
+    "(official video)",
+    "[official video]",
+    "(official audio)",
+    "[official audio]",
+    "(lyric video)",
+    "[lyric video]",
+    "(lyrics video)",
+    "[lyrics video]",
 ]
 
 

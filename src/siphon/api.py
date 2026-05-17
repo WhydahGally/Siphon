@@ -272,6 +272,8 @@ async def _lifespan(app: FastAPI):
     registry.init_db(data_dir)
     if not registry.get_setting("title_noise_patterns"):
         registry.set_setting("title_noise_patterns", json.dumps(_DEFAULT_NOISE_PATTERNS))
+    if not registry.get_setting("sponsorblock_categories"):
+        registry.set_setting("sponsorblock_categories", json.dumps(list(registry._DEFAULT_SB_CATEGORIES)))
     _browser_logs_enabled = registry.get_setting("browser_logs") == "on"
     stored_log_level = registry.get_setting("log_level")
     if stored_log_level:
@@ -526,6 +528,22 @@ def api_get_playlist_items(playlist_id: str):
     return registry.list_items_for_playlist(playlist_id)
 
 
+@app.delete("/playlists/{playlist_id}/warnings", status_code=204)
+def api_clear_playlist_warnings(playlist_id: str):
+    row = registry.get_playlist_by_id(playlist_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Playlist not found.")
+    registry.clear_playlist_warnings(playlist_id)
+
+
+@app.delete("/playlists/{playlist_id}/warnings/{video_id}", status_code=204)
+def api_clear_playlist_warning(playlist_id: str, video_id: str):
+    row = registry.get_playlist_by_id(playlist_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Playlist not found.")
+    registry.clear_playlist_warning(playlist_id, video_id)
+
+
 @app.put("/playlists/{playlist_id}/items/{video_id}/rename")
 def api_rename_playlist_item(playlist_id: str, video_id: str, body: RenameRequest):
     """Rename a downloaded playlist item on disk and in the DB."""
@@ -750,6 +768,17 @@ def api_health():
     return {"status": "ok", "watched_playlists": watched}
 
 
+@app.get("/health/sponsorblock")
+def api_health_sponsorblock():
+    """Probe SponsorBlock API availability."""
+    from siphon.downloader import check_sb_health
+    result = check_sb_health()
+    if result["status"] == "unhealthy":
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=503, content=result)
+    return result
+
+
 @app.get("/playlist-patterns")
 def api_playlist_patterns():
     """Return yt-dlp-derived URL patterns that indicate a playlist/channel URL.
@@ -768,7 +797,10 @@ def api_playlist_patterns():
 def api_create_job(body: JobCreate):
     url = _normalise_url(body.url)
     output_dir = _resolve_output_dir(body.output_dir or _DEFAULT_OUTPUT_DIR)
-    cookie_file = _get_cookie_file_path() if body.use_cookies else None
+    cookie_file = None
+    if body.use_cookies:
+        path = os.path.join(_resolve_data_dir(), "cookies.txt")
+        cookie_file = path if os.path.isfile(path) else None
 
     try:
         info = _fetch_playlist_info(url, cookie_file=cookie_file)
@@ -810,8 +842,20 @@ def api_create_job(body: JobCreate):
         if body.watched and _scheduler is not None:
             _scheduler.add_playlist(playlist_id)
 
+        # Persist SB disabled state on the playlist (e.g. "Download anyway" flow)
+        if not body.sponsorblock_enabled:
+            registry.set_playlist_sponsorblock(playlist_id, "")
+
+        if body.register_only:
+            return {
+                "job_id": None,
+                "playlist_id": playlist_id,
+                "existing_playlist": existing_playlist,
+                "registered": True,
+            }
+
         entries = enumerate_entries(url, cookie_file=cookie_file)
-        entries = filter_entries(entries, playlist_id)
+        entries, _ = filter_entries(entries, playlist_id)
     else:
         # Single video
         video_id = info.get("id")
@@ -1093,6 +1137,8 @@ def _resolve_sb_categories_for_job(body) -> Optional[list]:
     """Resolve the effective SponsorBlock category list for a one-off job.
 
     Jobs have no DB row — resolve directly from the request body then global settings.
+    The body.sponsorblock_enabled flag is authoritative; the global enabled setting
+    only provides the UI default and does not veto a per-request decision.
     Returns None if SponsorBlock should not be applied.
     """
     import json as _json
@@ -1100,9 +1146,7 @@ def _resolve_sb_categories_for_job(body) -> Optional[list]:
         return None
     if body.sponsorblock_categories:
         return body.sponsorblock_categories
-    # Fall back to global settings
-    if registry.get_setting("sponsorblock_enabled") == "false":
-        return None
+    # User enabled SB — resolve which categories from global config
     cats_raw = registry.get_setting("sponsorblock_categories")
     if cats_raw:
         try:
@@ -1110,7 +1154,8 @@ def _resolve_sb_categories_for_job(body) -> Optional[list]:
             return cats if cats else None
         except Exception:
             pass
-    return list(registry._DEFAULT_SB_CATEGORIES)
+    # No categories configured — return None (SB effectively disabled)
+    return None
 
 
 def _apply_sb_patch(playlist_id: str, body) -> None:
@@ -1149,6 +1194,16 @@ def _playlist_to_dict(row) -> dict:
         d["sponsorblock_enabled"] = registry.get_setting("sponsorblock_enabled") != "false"
     else:
         d["sponsorblock_enabled"] = sb_cats != ""
+    # Parse warnings JSON into a list (empty array if NULL/missing)
+    import json as _json
+    raw_warnings = d.get("warnings")
+    if raw_warnings:
+        try:
+            d["warnings"] = _json.loads(raw_warnings)
+        except (ValueError, TypeError):
+            d["warnings"] = []
+    else:
+        d["warnings"] = []
     return d
 
 

@@ -42,8 +42,8 @@ onMounted(async () => {
     const res = await fetch('/info')
     if (res.ok) {
       const { download_dir, db_dir } = await res.json()
-      console.info('[siphon] Download directory:', download_dir)
-      console.info('[siphon] DB & logs directory:', db_dir)
+      console.debug('[siphon] Download directory:', download_dir)
+      console.debug('[siphon] DB & logs directory:', db_dir)
     }
   } catch {
     // daemon not reachable yet
