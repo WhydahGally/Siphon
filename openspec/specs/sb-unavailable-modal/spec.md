@@ -26,6 +26,15 @@ When a user initiates a download (single or playlist) with SponsorBlock enabled,
 - **WHEN** the SB unavailable modal is shown AND user clicks the overlay or ✕ button
 - **THEN** the modal SHALL close and no download or registration SHALL occur
 
+### Requirement: PlaylistRow "Sync anyway" does not persist SB state
+When a user clicks "Sync now" from the Library and SponsorBlock is unavailable, the modal offers "Sync anyway". Unlike "Download anyway" in DownloadForm, this action SHALL NOT persist `sponsorblock_enabled = false` on the playlist — it only skips SB processing for that single sync operation.
+
+#### Scenario: User clicks "Sync anyway" from PlaylistRow
+- **WHEN** the SB unavailable modal is shown in PlaylistRow AND user clicks "Sync anyway"
+- **THEN** the sync SHALL proceed without SponsorBlock for that operation only
+- **THEN** the playlist's persisted `sponsorblock_enabled` value SHALL remain unchanged
+- **THEN** the modal SHALL close
+
 ### Requirement: Scheduler respects sb_require_for_sync setting
 When `sb_require_for_sync` is `"true"`, the scheduler SHALL check SB health before each sync cycle. If unhealthy, the sync SHALL be skipped and a warning appended to the playlist.
 
