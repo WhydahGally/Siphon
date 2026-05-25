@@ -358,6 +358,7 @@ function handleSbDownloadAnyway() {
 
 .url-input {
   flex: 1;
+  min-width: 80px;
   background: var(--surface-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
