@@ -23,7 +23,7 @@ class TestFilterEntries:
             patch("siphon.downloader.registry.get_failed_download", return_value=None),
         ):
             result, skipped = filter_entries(entries, "pl-1")
-        assert [e["id"] for e in result] == ["v1", "v2"]
+        assert [e["id"] for e in result] == ["v2", "v1"]
         assert skipped == 0
 
     def test_already_downloaded_filtered_out(self):

@@ -591,7 +591,7 @@ def update_item_rename(video_id: str, playlist_id: str, new_name: str) -> None:
 
 
 def list_items_for_playlist(playlist_id: str) -> list:
-    """Return all item rows for a playlist ordered by downloaded_at ascending."""
+    """Return all item rows for a playlist ordered by downloaded_at descending."""
     conn = _get_conn()
     rows = conn.execute(
         """

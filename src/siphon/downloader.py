@@ -494,6 +494,8 @@ def filter_entries(
             continue
         to_dispatch.append(entry)
 
+    # Reverse so oldest items are downloaded first
+    to_dispatch.reverse()
     return to_dispatch, skipped_count
 
 
