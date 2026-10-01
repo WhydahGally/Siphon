@@ -19,7 +19,7 @@ COPY --from=mwader/static-ffmpeg:latest /ffprobe /usr/local/bin/ffprobe
 
 # JS runtime for yt-dlp's YouTube challenge solver (nsig/signature); without it
 # YouTube downloads fail with HTTP 403. Single static binary, no shared libs.
-COPY --from=denoland/deno:bin-2.9.6 /deno /usr/local/bin/deno
+COPY --from=denoland/deno:bin-2.9.7 /deno /usr/local/bin/deno
 
 WORKDIR /app
 
